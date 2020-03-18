@@ -6,6 +6,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	public $credentials;
 
 	public function __construct() {
+		parent::__construct();
+
 		if(is_file(__DIR__."/vendor/autoload.php")) {
 			require_once(__DIR__."/vendor/autoload.php");
 		}
@@ -48,9 +50,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $credentialsPath);
 			}
 		}
-
-		parent::__construct();
-		// Other code to run when object is instantiated
 	}
 	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
@@ -68,7 +67,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	## RDR Cron method to pull data in
 	public function rdr_pull() {
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
-		$client = $module->getGoogleClient();
+		$client = $this->getGoogleClient();
 
 		/** @var GuzzleHttp\ClientInterface $httpClient */
 		$httpClient = $client->authorize();
