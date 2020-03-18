@@ -90,7 +90,7 @@
 
 	"crons": [
 		{
-			"cron_name": "RDR Cron",
+			"cron_name": "rdr_cron",
 			"cron_description": "Regularly pulls data from the RDR into REDCap",
 			"method": "rdr_pull",
 			"cron_frequency": "1800",
