@@ -1,6 +1,9 @@
 <?php
 namespace PmiModule\PmiRdrModule;
 
+use ExternalModules\ExternalModules;
+use Google\Cloud\Datastore\DatastoreClient;
+
 class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	public $client;
 	public $credentials;
@@ -75,13 +78,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$projectQuery = ExternalModules::getEnabledProjects($this->PREFIX);
 		$projectList = [];
 
-		while($row = db_fetch_assoc($projectQuery)) {
+		while($row = $projectQuery->fetch_assoc()) {
 			$projectList[] = $row['project_id'];
 		}
-
 		foreach($projectList as $projectId) {
 			$rdrUrl = $this->getProjectSetting("rdr-pull-url",$projectId);
-
 			foreach($rdrUrl as $urlKey => $thisUrl) {
 				$results = $httpClient->get($thisUrl);
 
@@ -108,7 +109,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 			$this->client->addScope("profile");
 			$this->client->addScope("email");
-
 
 			$authUserEmail = $this->getSystemSetting("auth-user-email");
 
