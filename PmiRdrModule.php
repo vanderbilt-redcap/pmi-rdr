@@ -81,8 +81,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		while($row = $projectQuery->fetch_assoc()) {
 			$projectList[] = $row['project_id'];
 		}
+
 		foreach($projectList as $projectId) {
-			$rdrUrl = $this->getProjectSetting("rdr-pull-url",$projectId);
+			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
 			foreach($rdrUrl as $urlKey => $thisUrl) {
 				$results = $httpClient->get($thisUrl);
 

@@ -36,24 +36,65 @@
 
 	"project-settings": [
 		{
-			"key": "rdr-url",
-			"name": "Endpoints to pull data from",
+			"key": "rdr-connections",
+			"name": "Endpoints to share data through",
 			"type": "sub_settings",
 			"repeatable": true,
 			"sub_settings": [
 				{
-					"key": "rdr-pull-url",
+					"key": "rdr-urls",
 					"name": "URL of RDR Endpoint",
 					"type": "text",
 					"repeatable": false
 				},
+				{
+					"key": "rdr-connection-type",
+					"name": "Pull or Push",
+					"type": "dropdown",
+					"choices": [
+						{"value": "pull","name": "Pull"},
+						{"value": "push","name": "Push"}
+					]
+				},
+				{
+					"key": "rdr-data-format",
+					"name": "Data Format for this endpoint",
+					"type": "dropdown",
+					"choices": [
+						{"value": "flat","name": "Flat"},
+						{"value": "assoc","name": "Associative"}
+					]
+				},
+				{
+					"key": "rdr-record-field",
+					"name": "Field that stores endpoint ID",
+					"type": "field-list",
+					"repeatable": false
+				},
+				{
+					"key": "rdr-endpoint-record",
+					"name": "Endpoint field containing ID (leave blank on associative)",
+					"type": "text",
+					"repeatable": false
+				}
 				{
 					"key": "rdr-data-mapping",
 					"name": "Data Mapping for this Endpoint",
 					"type": "sub_settings",
 					"repeatable": true,
 					"sub_settings": [
-
+						{
+							"key": "rdr-redcap-field-name",
+							"name": "REDCap field name",
+							"type": "field-list",
+							"repeatable": false
+						},
+						{
+							"key": "rdr-endpoint-field-name",
+							"name": "Endpoint Field Name (Use / if field is nested)",
+							"type": "text",
+							"repeatable": false
+						}
 					]
 				}
 			]
