@@ -66,6 +66,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		$rdrUrl = $this->getProjectSetting("rdr-urls",$project_id);
 
+		$metadata = $this->getMetadata($project_id);
+
 		$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$project_id);
 		$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
 		$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
@@ -103,19 +105,35 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					foreach($apiNestedFields as $tempField) {
 						$importPlace = &$importPlace[$tempField];
 					}
-					
-					$importPlace = $data[$redcapField];
+
+					$value = $data[$redcapField];
+					if($metadata[$redcapField]["field_type"] == "checkbox") {
+						$value = [];
+						foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
+							if($checkboxChecked == 1) {
+								$value[] = $checkboxRaw;
+							}
+						}
+					}
+					else if($metadata[$redcapField]["field_type"] == "yesno") {
+						$value = boolval($value);
+					}
+					else if(is_numeric($value)) {
+						$value = (int)$value;
+					}
+					$importPlace = $value;
 				}
 			}
 
 			if(!empty($exportData)) {
+				$exportData = [$exportData];
 //				$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
 
-				$exportData = json_encode($exportData);
+//				$exportData = json_encode($exportData);
 				## TODO Temp test string to see if works
-				$exportData = '{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": False,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}';
-
-				$results = $httpClient->post($thisUrl,["body" => $exportData,"headers" => ["Content-Type" => "application/json"]]);
+//				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
+//				$exportData = json_decode($exportData,true);
+				$results = $httpClient->post($thisUrl,["json" => $exportData]);
 				error_log("RDR Test: ".var_export($results->getHeaders(),true));
 				error_log("RDR Test: ".var_export($exportData,true));
 				error_log("RDR Test: ".var_export($results->getBody()->getContents(),true));
