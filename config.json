@@ -76,7 +76,13 @@
 					"name": "Endpoint field containing ID (leave blank on associative)",
 					"type": "text",
 					"repeatable": false
-				}
+				},
+				{
+					"key": "rdr-data-mapping-json",
+					"name": "Data Mapping in JSON format (overrides list below if not blank)",
+					"type": "text",
+					"repeatable": false
+				},
 				{
 					"key": "rdr-data-mapping",
 					"name": "Data Mapping for this Endpoint",

@@ -57,14 +57,70 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
-		$client = $module->getGoogleClient();
+		$client = $this->getGoogleClient();
 
-		/** @var GuzzleHttp\ClientInterface $httpClient */
+		/** @var \GuzzleHttp\Client $httpClient */
 		$httpClient = $client->authorize();
 
-		$data = $this->getData($project_id,$record);
+		$data = $this->getData($project_id,$record,$event_id);
 
+		$rdrUrl = $this->getProjectSetting("rdr-urls",$project_id);
 
+		$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$project_id);
+		$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
+		$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
+		$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$project_id);
+//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$project_id);
+		$dataFormats = $this->getProjectSetting("rdr-data-format",$project_id);
+		$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$project_id);
+
+		foreach($rdrUrl as $urlKey => $thisUrl) {
+			if($dataConnectionTypes[$urlKey] != "push") {
+				continue;
+			}
+			
+			if(empty($dataMappingJson[$urlKey])) {
+				$dataMapping = [];
+				
+				foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
+					$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
+				}
+			}
+			else {
+				$dataMapping = json_decode($dataMappingJson[$urlKey],true);
+			}
+			
+			$exportData = [];
+			foreach($dataMapping as $redcapField => $apiField) {
+				$apiNestedFields = explode("/",$apiField);
+				
+				if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
+					$importPlace = &$exportData;
+					if($dataFormats[$urlKey] == "assoc") {
+						$importPlace = &$importPlace[$record];
+					}
+
+					foreach($apiNestedFields as $tempField) {
+						$importPlace = &$importPlace[$tempField];
+					}
+					
+					$importPlace = $data[$redcapField];
+				}
+			}
+
+			if(!empty($exportData)) {
+//				$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
+
+				$exportData = json_encode($exportData);
+				## TODO Temp test string to see if works
+				$exportData = '{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": False,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}';
+
+				$results = $httpClient->post($thisUrl,["body" => $exportData,"headers" => ["Content-Type" => "application/json"]]);
+				error_log("RDR Test: ".var_export($results->getHeaders(),true));
+				error_log("RDR Test: ".var_export($exportData,true));
+				error_log("RDR Test: ".var_export($results->getBody()->getContents(),true));
+			}
+		}
 	}
 
 	## RDR Cron method to pull data in
@@ -84,12 +140,53 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		foreach($projectList as $projectId) {
 			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
+
+			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
+			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+			$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+			$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
+//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
+			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
+			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
+
 			foreach($rdrUrl as $urlKey => $thisUrl) {
+				if($dataConnectionTypes[$urlKey] != "pull") {
+					continue;
+				}
+
+				if(empty($dataMappingJson[$urlKey])) {
+					$dataMapping = [];
+
+					foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
+						$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
+					}
+				}
+				else {
+					$dataMapping = json_decode($dataMappingJson[$urlKey],true);
+				}
+
 				$results = $httpClient->get($thisUrl);
 
-				$decodedResults = json_decode($results->getBody()->getContents());
+				$decodedResults = json_decode($results->getBody()->getContents(),true);
+				$importData = [];
 
-				echo "<pre>";var_dump($decodedResults);echo "</pre>";echo "<br />";
+				foreach($decodedResults as $dataKey => $dataDetails) {
+					$recordId = $dataKey;
+					if($dataFormats[$urlKey] == "flat") {
+						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
+					}
+
+					$rowData = [];
+					foreach($dataMapping as $redcapField => $apiField) {
+						if(array_key_exists($apiField,$dataDetails)) {
+							$rowData[$redcapField] = $dataDetails[$apiField];
+						}
+					}
+
+					$importData[$recordId] = $rowData;
+				}
+
+				echo "<pre>";var_dump($importData);echo "</pre>";echo "<br />";
 			}
 		}
 	}
