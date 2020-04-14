@@ -238,4 +238,81 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		return $this->client;
 	}
+
+	public function redcap_module_save_configuration( $project_id ) {
+		$oldJson = $this->getProjectSetting('existing-json');
+		$newJson = $this->getProjectSetting('rdr-data-mapping-json');
+		$newFields = $this->getProjectSetting('rdr-redcap-field-name');
+		$newMatchingFields = $this->getProjectSetting('rdr-endpoint-field-name');
+		$newMappingSubSettings = $this->getProjectSetting("rdr-data-mapping");
+
+		$dataChanged = false;
+		if(!is_array($oldJson)) {
+			$oldJson = [];
+		}
+
+		foreach($newJson as $apiKey => $jsonDetails) {
+			$combinedJson = $this->refactorDropdownsToJson($newFields[$apiKey],$newMatchingFields[$apiKey]);
+			if(array_key_exists($apiKey,$oldJson)) {
+				$thisOldJson = $oldJson[$apiKey];
+			}
+			else {
+				$thisOldJson = "";
+			}
+
+			## Use dropdowns to check for updates
+			if($jsonDetails == $thisOldJson) {
+				## This means something changed on the dropdowns
+				if($combinedJson != $thisOldJson) {
+					$oldJson[$apiKey] = $combinedJson;
+					$newJson[$apiKey] = $combinedJson;
+					$dataChanged = true;
+				}
+			}
+			## This means the json was updated, so need to update the dropdowns too
+			else {
+				$dataChanged = true;
+				$decodedJson = json_decode($jsonDetails,true);
+				$thisNewFields = [];
+				$thisNewMatchingFields = [];
+
+				foreach($decodedJson as $redcapField => $endpointField) {
+					$thisNewFields[] = $redcapField;
+					$thisNewMatchingFields[] = $endpointField;
+				}
+
+				$thisNewJson = $this->refactorDropdownsToJson($thisNewFields,$thisNewMatchingFields);
+
+				$newFields[$apiKey] = $thisNewFields;
+				$newMatchingFields[$apiKey] = $thisNewMatchingFields;
+
+				$newMappingSubSettings[$apiKey] = array_fill(0,count($thisNewFields),"true");
+				$oldJson[$apiKey] = $thisNewJson;
+				$newJson[$apiKey] = $thisNewJson;
+			}
+		}
+
+		if($dataChanged) {
+			$this->setProjectSetting("rdr-redcap-field-name",$newFields);
+			$this->setProjectSetting("rdr-endpoint-field-name",$newMatchingFields);
+			$this->setProjectSetting("existing-json",$oldJson);
+			$this->setProjectSetting("rdr-data-mapping-json",$newJson);
+			$this->setProjectSetting("rdr-data-mapping",$newMappingSubSettings);
+		}
+	}
+
+	public function refactorDropdownsToJson($newFields, $endpointFields) {
+		if(count($newFields) != count($endpointFields)) {
+			return false;
+		}
+
+		$newJson = [];
+		foreach($newFields as $fieldKey => $fieldName) {
+			$endpoint = $endpointFields[$fieldKey];
+
+			$newJson[$fieldName] = $endpoint;
+		}
+
+		return json_encode($newJson);
+	}
 }
