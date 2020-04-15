@@ -259,12 +259,13 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				else {
 					## Attempt to save the data
 					foreach($importData as $recordId => $recordData) {
-						$this->saveData($projectId,$recordId,$this->getFirstEventId($projectId),$recordData);
+						$eventId = $this->getFirstEventId($projectId);
+						$fieldName = reset(array_keys($dataMapping));
+						$formName = $metadata[$fieldName]["form_name"];
+						$this->saveData($projectId,$recordId,$eventId,$recordData);
 						## TODO make sure this triggers the save hook
-//						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);
-//						public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
-
-						}
+						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);
+					}
 				}
 			}
 		}
