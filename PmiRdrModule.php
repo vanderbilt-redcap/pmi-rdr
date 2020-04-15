@@ -142,7 +142,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	}
 
 	## RDR Cron method to pull data in
-	public function rdr_pull() {
+	public function rdr_pull($debugApi = false) {
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
 
@@ -165,6 +165,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
 //			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
 			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
+			$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
 			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
 
 			foreach($rdrUrl as $urlKey => $thisUrl) {
@@ -188,6 +189,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
 				$importData = [];
 
+				if($debugApi) {
+					echo "<pre>";var_dump($decodedResults);echo "</pre>";echo "<br />";
+				}
+
 				foreach($decodedResults as $dataKey => $dataDetails) {
 					$recordId = $dataKey;
 					if($dataFormats[$urlKey] == "flat") {
@@ -204,7 +209,17 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$importData[$recordId] = $rowData;
 				}
 
-				echo "<pre>";var_dump($importData);echo "</pre>";echo "<br />";
+				if($testingOnly[$urlKey] == "1") {
+					if(!$debugApi) {
+						echo "<pre>";var_dump($importData);echo "</pre>";echo "<br />";
+					}
+				}
+				else {
+					## Attempt to save the data
+					foreach($importData as $recordId => $recordData) {
+						$this->saveData($projectId,$recordId,$this->getFirstEventId($projectId),$recordData);
+					}
+				}
 			}
 		}
 	}
@@ -314,5 +329,19 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 
 		return json_encode($newJson);
+	}
+
+	public function redcap_module_link_check_display($project_id, $link) {
+		if($link["name"] == "Test Page") {
+			if(constant("SUPER_USER") == 1) {
+				return parent::redcap_module_link_check_display($project_id, $link);
+			}
+			else {
+				return false;
+			}
+		}
+		else {
+			return parent::redcap_module_link_check_display($project_id, $link);
+		}
 	}
 }

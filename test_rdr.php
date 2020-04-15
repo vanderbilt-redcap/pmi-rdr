@@ -8,5 +8,5 @@
 
 /** @var $module \PmiModule\PmiRdrModule\PmiRdrModule */
 if(defined("SUPER_USER") && SUPER_USER == 1) {
-	$data = $module->rdr_pull();
+	$data = $module->rdr_pull($_GET['debug'] == 1);
 }

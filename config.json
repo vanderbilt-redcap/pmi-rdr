@@ -17,14 +17,19 @@
 
 	"permissions": [
 		"redcap_save_record",
-		"redcap_module_save_configuration"
+		"redcap_module_save_configuration",
+		"redcap_module_link_check_display"
 	],
 	
 	"enable-every-page-hooks-on-system-pages": false,	
 
 	"links": {
 		"project": [
-
+			{
+				"url": "test_rdr.php",
+				"icon": "report",
+				"name": "Test Page"
+			}
 		],
 		"control-center": [
 
@@ -47,6 +52,14 @@
 					"name": "URL of RDR Endpoint",
 					"type": "text",
 					"repeatable": false
+				},
+				{
+					"key": "rdr-test-only",
+					"name": "Test Mode?",
+					"type": "dropdown",
+					"choices": [
+						{"value": "1","name": "Yes"}
+					]
 				},
 				{
 					"key": "rdr-connection-type",
