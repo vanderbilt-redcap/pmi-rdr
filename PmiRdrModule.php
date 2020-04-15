@@ -143,6 +143,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false) {
+		error_log("RDR: Ran pull cron");
+
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
 
@@ -158,6 +160,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		foreach($projectList as $projectId) {
 			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
+			$metadata = $this->getMetadata($projectId);
 
 			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
 			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
@@ -201,8 +204,47 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 					$rowData = [];
 					foreach($dataMapping as $redcapField => $apiField) {
-						if(array_key_exists($apiField,$dataDetails)) {
-							$rowData[$redcapField] = $dataDetails[$apiField];
+						$apiFieldList = explode("/",$apiField);
+						$importFrom = &$dataDetails;
+
+						foreach($apiFieldList as $thisField) {
+//							if($recordId == "1476") {
+//								echo "Testing $thisField on :";
+//								echo "<pre>";var_dump($importFrom);echo "</pre>";echo "<br />";
+//							}
+							if(array_key_exists($thisField,$importFrom)) {
+								$importFrom = &$importFrom[$thisField];
+							}
+							else {
+								continue 2;
+							}
+						}
+
+						$checkboxMatches = [];
+
+						## Check REDCap metadata so that bool and raw data can be mapped properly
+						if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
+							$checkboxValue = $checkboxMatches[1];
+							$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+
+							if(!array_key_exists($checkboxFieldName,$rowData)) {
+								$rowData[$checkboxFieldName] = [];
+							}
+
+							$rowData[$checkboxFieldName][$checkboxValue] = ($importFrom ? "1" : "0");
+						}
+						else if($metadata[$redcapField]["field_type"] == "checkbox") {
+							$value = [];
+							foreach($importFrom as $checkboxRaw) {
+								$value[] = $checkboxRaw;
+							}
+							$rowData[$redcapField] = $value;
+						}
+						else if($metadata[$redcapField]["field_type"] == "yesno") {
+							$rowData[$redcapField] = ($importFrom ? "1" : "0");
+						}
+						else {
+							$rowData[$redcapField] = $importFrom;
 						}
 					}
 
@@ -218,7 +260,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					## Attempt to save the data
 					foreach($importData as $recordId => $recordData) {
 						$this->saveData($projectId,$recordId,$this->getFirstEventId($projectId),$recordData);
-					}
+						## TODO make sure this triggers the save hook
+//						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);
+//						public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
+
+						}
 				}
 			}
 		}
