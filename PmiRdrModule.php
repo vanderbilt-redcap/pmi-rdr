@@ -203,12 +203,12 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				foreach($decodedResults as $dataKey => $dataDetails) {
 					$recordId = $dataKey;
 
-					if(array_key_exists($recordId,$recordList)) {
-						continue;
-					}
-
 					if($dataFormats[$urlKey] == "flat") {
 						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
+					}
+
+					if(array_key_exists($recordId,$recordList)) {
+						continue;
 					}
 
 					$rowData = [];
@@ -270,6 +270,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					foreach($importData as $recordId => $recordData) {
 						$eventId = $this->getFirstEventId($projectId);
 						$this->saveData($projectId,$recordId,$eventId,$recordData);
+
+						## Trigger alerts and notifications
+						$eta = new \Alerts();
+
+						$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+
+						## Add to records cache
+						\Records::addNewRecordToCache($projectId,$recordId);
+
 						## TODO make sure this triggers the save hook
 						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);
 					}
