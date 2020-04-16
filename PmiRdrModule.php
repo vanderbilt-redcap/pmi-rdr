@@ -187,6 +187,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$dataMapping = json_decode($dataMappingJson[$urlKey],true);
 				}
 
+				$fieldName = reset(array_keys($dataMapping));
+				$formName = $metadata[$fieldName]["form_name"];
+				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
+
 				$results = $httpClient->get($thisUrl);
 
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
@@ -198,6 +202,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 				foreach($decodedResults as $dataKey => $dataDetails) {
 					$recordId = $dataKey;
+
+					if(array_key_exists($recordId,$recordList)) {
+						continue;
+					}
+
 					if($dataFormats[$urlKey] == "flat") {
 						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
 					}
@@ -260,8 +269,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					## Attempt to save the data
 					foreach($importData as $recordId => $recordData) {
 						$eventId = $this->getFirstEventId($projectId);
-						$fieldName = reset(array_keys($dataMapping));
-						$formName = $metadata[$fieldName]["form_name"];
 						$this->saveData($projectId,$recordId,$eventId,$recordData);
 						## TODO make sure this triggers the save hook
 						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);
