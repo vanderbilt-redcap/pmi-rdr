@@ -198,9 +198,20 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 				if($debugApi) {
 					echo "<pre>";var_dump($decodedResults);echo "</pre>";echo "<br />";
+					continue;
+				}
+
+				if($decodedResults["message"] != "") {
+					echo "Error getting results: received message \"".$decodedResults["message"]."\"<br />";
+					continue;
 				}
 
 				foreach($decodedResults as $dataKey => $dataDetails) {
+					## This could be because an error message was received or the API data isn't formatted properly
+					if(!is_array($dataDetails)) {
+						continue;
+					}
+
 					$recordId = $dataKey;
 
 					if($dataFormats[$urlKey] == "flat") {
@@ -271,10 +282,16 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						$eventId = $this->getFirstEventId($projectId);
 						$this->saveData($projectId,$recordId,$eventId,$recordData);
 
-						## Trigger alerts and notifications
-						$eta = new \Alerts();
+						try {
+							## Trigger alerts and notifications
+							$eta = new \Alerts();
 
-						$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+						}
+						## Catch issues with sending alerts
+						catch(\Exception $e) {
+							error_log("RDRError sending notification email for $projectId ~ $recordId: ".var_export($e->getMessage(),true));
+						}
 
 						## Add to records cache
 						\Records::addNewRecordToCache($projectId,$recordId);
