@@ -8,6 +8,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	public $client;
 	public $credentials;
 
+	const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
+
 	public function __construct() {
 		parent::__construct();
 
@@ -56,6 +58,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	}
 	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
+		## Prevent hook from being called by the RDR cron
+		if(constant(self::RECORD_CREATED_BY_MODULE.$record) == 1) {
+			return;
+		}
+
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
 
@@ -75,6 +82,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 //			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$project_id);
 		$dataFormats = $this->getProjectSetting("rdr-data-format",$project_id);
 		$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$project_id);
+		$conditions = $this->getProjectSetting("rdr-conditions",$project_id);
+		$testingOnly = $this->getProjectSetting("rdr-test-only",$project_id);
 
 		foreach($rdrUrl as $urlKey => $thisUrl) {
 			if($dataConnectionTypes[$urlKey] != "push") {
@@ -91,12 +100,27 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			else {
 				$dataMapping = json_decode($dataMappingJson[$urlKey],true);
 			}
+
+			## Check for conditions before trying to send
+			if(!empty($conditions[$urlKey])) {
+				$readyToSend = \REDCap::evaluateLogic($conditions[$urlKey],$project_id,$record,$event_id,$repeat_instance);
+				if(!$readyToSend) {
+					if($testingOnly[$urlKey] == 1) {
+						error_log("RDR Test: Not Sent $record ~ ".var_export($readyToSend,true)." ~ ".$conditions[$urlKey]);
+					}
+					continue;
+				}
+			}
 			
 			$exportData = [];
 			foreach($dataMapping as $redcapField => $apiField) {
 				$apiNestedFields = explode("/",$apiField);
 				
 				if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
+					if(empty($data[$redcapField])) {
+						continue;
+					}
+
 					$importPlace = &$exportData;
 					if($dataFormats[$urlKey] == "assoc") {
 						$importPlace = &$importPlace[$record];
@@ -133,10 +157,23 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				## TODO Temp test string to see if works
 //				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
 //				$exportData = json_decode($exportData,true);
-				$results = $httpClient->post($thisUrl,["json" => $exportData]);
-				error_log("RDR Test: ".var_export($results->getHeaders(),true));
-				error_log("RDR Test: ".var_export($exportData,true));
-				error_log("RDR Test: ".var_export($results->getBody()->getContents(),true));
+
+				if($testingOnly[$urlKey] != 1) {
+					$results = $httpClient->post($thisUrl,["json" => $exportData]);
+					if($results->getStatusCode() != 200) {
+						$message = $results->getBody()->getContents();
+						error_log("RDR Test: ".var_export($results->getHeaders(),true));
+						error_log("RDR Test: ".var_export($message,true));
+
+						\REDCap::logEvent("Pushed decision to RDR","Failed: \n".$message,"",$record,$event_id,$project_id);
+					}
+					else {
+						\REDCap::logEvent("Pushed decision to RDR","Success","",$record,$event_id,$project_id);
+					}
+				}
+				else {
+					error_log("RDR Test: Ready to Send $record ~ ".var_export($exportData,true));
+				}
 			}
 		}
 	}
@@ -296,6 +333,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 						## Add to records cache
 						\Records::addNewRecordToCache($projectId,$recordId);
+
+						## Define a constant so that this module's own save hook isn't called
+						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
 
 						## TODO make sure this triggers the save hook
 						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL]);

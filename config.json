@@ -71,6 +71,11 @@
 					]
 				},
 				{
+					"key": "rdr-conditions",
+					"name": "Conditions for import/export",
+					"type": "text"
+				},
+				{
 					"key": "rdr-data-format",
 					"name": "Data Format for this endpoint",
 					"type": "dropdown",
