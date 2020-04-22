@@ -197,7 +197,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				$importData = [];
 
 				if($debugApi) {
-					echo "<pre>";var_dump($decodedResults);echo "</pre>";echo "<br />";
+					echo "Debug Test<Br />";
+					echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
 					continue;
 				}
 
@@ -256,7 +257,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						else if($metadata[$redcapField]["field_type"] == "checkbox") {
 							$value = [];
 							foreach($importFrom as $checkboxRaw) {
-								$value[] = $checkboxRaw;
+								$value[] = htmlspecialchars($checkboxRaw);
 							}
 							$rowData[$redcapField] = $value;
 						}
@@ -264,7 +265,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							$rowData[$redcapField] = ($importFrom ? "1" : "0");
 						}
 						else {
-							$rowData[$redcapField] = $importFrom;
+							$rowData[$redcapField] = htmlspecialchars($importFrom);
 						}
 					}
 
@@ -273,7 +274,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 				if($testingOnly[$urlKey] == "1") {
 					if(!$debugApi) {
-						echo "<pre>";var_dump($importData);echo "</pre>";echo "<br />";
+						echo "<pre>".htmlspecialchars(var_export($importData,true))."</pre>";echo "<br />";
 					}
 				}
 				else {
