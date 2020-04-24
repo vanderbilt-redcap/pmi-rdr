@@ -198,6 +198,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		foreach($projectList as $projectId) {
 			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
 			$metadata = $this->getMetadata($projectId);
+			$proj = new \Project($projectId);
+			$proj->loadEvents();
+
+			$eventId = $proj->firstEventId;
+			$armId = $proj->firstArmId;
 
 			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
 			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
@@ -317,7 +322,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				else {
 					## Attempt to save the data
 					foreach($importData as $recordId => $recordData) {
-						$eventId = $this->getFirstEventId($projectId);
 						$this->saveData($projectId,$recordId,$eventId,$recordData);
 
 						try {
@@ -332,7 +336,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						}
 
 						## Add to records cache
-						\Records::addNewRecordToCache($projectId,$recordId);
+						\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
 
 						## Define a constant so that this module's own save hook isn't called
 						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
