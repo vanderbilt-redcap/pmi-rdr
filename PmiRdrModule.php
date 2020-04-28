@@ -181,6 +181,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false) {
 		error_log("RDR: Ran pull cron");
+		
+		if(is_array($debugApi)) {
+			## When run from the cron, an array is passed in here
+			$debugApi = false;
+		}
 
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
@@ -194,7 +199,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		while($row = $projectQuery->fetch_assoc()) {
 			$projectList[] = $row['project_id'];
 		}
-
+		
 		foreach($projectList as $projectId) {
 			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
 			$metadata = $this->getMetadata($projectId);
@@ -311,18 +316,16 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						}
 					}
 
-					$importData[$recordId] = $rowData;
-				}
-
-				if($testingOnly[$urlKey] == "1") {
-					if(!$debugApi) {
-						echo "<pre>".htmlspecialchars(var_export($importData,true))."</pre>";echo "<br />";
+					if($testingOnly[$urlKey] == "1") {
+						if(!$debugApi) {
+							echo "<pre>".htmlspecialchars(var_export($importData,true))."</pre>";echo "<br />";
+						}
 					}
-				}
-				else {
-					## Attempt to save the data
-					foreach($importData as $recordId => $recordData) {
-						$this->saveData($projectId,$recordId,$eventId,$recordData);
+					else {
+						self::checkShutdown();
+						
+						## Attempt to save the data
+						$this->saveData($projectId,$recordId,$eventId,$rowData);
 
 						try {
 							## Trigger alerts and notifications
@@ -330,7 +333,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
 						}
-						## Catch issues with sending alerts
+							## Catch issues with sending alerts
 						catch(\Exception $e) {
 							error_log("RDRError sending notification email for $projectId ~ $recordId: ".var_export($e->getMessage(),true));
 						}
@@ -467,6 +470,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 		else {
 			return parent::redcap_module_link_check_display($project_id, $link);
+		}
+	}
+	
+	public static function checkShutdown() {
+		$connectionStatus = connection_status();
+		if($connectionStatus == 2 || $connectionStatus == 3) {
+			error_log("App Engine Error: Timeout");
+			echo "Process timed out<br />";
+			die();
 		}
 	}
 }
