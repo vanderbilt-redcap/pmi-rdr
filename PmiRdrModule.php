@@ -225,8 +225,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 			## Loop through each of the URLs this project is pointed to
 			foreach($rdrUrl as $urlKey => $thisUrl) {
-				## Only processing pull connections here
-				if($dataConnectionTypes[$urlKey] != "pull") {
+				## Only processing pull connections here, also skip empty URLs
+				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 					continue;
 				}
 
@@ -370,6 +370,16 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 
 		if($fieldMetadata === false) {
+			## For array values in RDR, it will return a 1 element array with "UNSET"
+			## instead of NULL or an empty array
+			if(is_array($importFrom)) {
+				foreach($importFrom as $thisValue) {
+					if($thisValue == "UNSET") {
+						$importFrom = false;
+						break;
+					}
+				}
+			}
 			return ($importFrom ? 1 : 0);
 		}
 
