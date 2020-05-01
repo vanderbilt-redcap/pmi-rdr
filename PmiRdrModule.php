@@ -369,17 +369,18 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			}
 		}
 
-		if($fieldMetadata === false) {
-			## For array values in RDR, it will return a 1 element array with "UNSET"
-			## instead of NULL or an empty array
-			if(is_array($importFrom)) {
-				foreach($importFrom as $thisValue) {
-					if($thisValue == "UNSET") {
-						$importFrom = false;
-						break;
-					}
+		## For array values in RDR, it will return a 1 element array with "UNSET"
+		## instead of NULL or an empty array
+		if(is_array($importFrom)) {
+			foreach($importFrom as $thisValue) {
+				if($thisValue == "UNSET") {
+					$importFrom = false;
+					break;
 				}
 			}
+		}
+
+		if($fieldMetadata === false) {
 			return ($importFrom ? 1 : 0);
 		}
 
