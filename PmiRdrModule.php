@@ -348,7 +348,12 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						## TODO May need to set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
 						$_GET['pid'] = $projectId;
 						$_GET['id'] = $recordId;
-						ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+						try {
+							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+						}
+						catch(\Exception $e) {
+							error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+						}
 					}
 				}
 			}
