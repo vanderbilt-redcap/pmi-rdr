@@ -333,7 +333,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
 						}
-							## Catch issues with sending alerts
+						## Catch issues with sending alerts
 						catch(\Exception $e) {
 							error_log("RDRError sending notification email for $projectId ~ $recordId: ".var_export($e->getMessage(),true));
 						}
@@ -344,10 +344,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						## Define a constant so that this module's own save hook isn't called
 						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
 
-						## TODO make sure this triggers the save hook
-						## TODO May need to set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
+						## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
 						$_GET['pid'] = $projectId;
 						$_GET['id'] = $recordId;
+
+						## Prevent module errors from crashing the whole import process
 						try {
 							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
 						}
