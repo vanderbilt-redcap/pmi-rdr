@@ -335,7 +335,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						}
 						## Catch issues with sending alerts
 						catch(\Exception $e) {
-							error_log("RDRError sending notification email for $projectId ~ $recordId: ".var_export($e->getMessage(),true));
+							error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
 						}
 
 						## Add to records cache
