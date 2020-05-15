@@ -258,7 +258,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				$results = $httpClient->get($thisUrl);
 
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
-				$importData = [];
 
 				## Export full API results if trying to debug
 				if($debugApi) {
@@ -318,7 +317,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 					if($testingOnly[$urlKey] == "1") {
 						if(!$debugApi) {
-							echo "<pre>".htmlspecialchars(var_export($importData,true))."</pre>";echo "<br />";
+							echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
 						}
 					}
 					else {
