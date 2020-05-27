@@ -324,7 +324,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						self::checkShutdown();
 						
 						## Attempt to save the data
-						$this->saveData($projectId,$recordId,$eventId,$rowData);
+						$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
+
+						if(count($results["errors"]) > 0) {
+							error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+						}
 
 						try {
 							## Trigger alerts and notifications
@@ -369,6 +373,30 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			if(array_key_exists($thisField,$importFrom)) {
 				$importFrom = &$importFrom[$thisField];
 			}
+			else if(strpos($thisField,"[") !== false) {
+				## Special piping characters present, so need to apply the special rules
+				if($thisField == "[owner]") {
+					$ownerId = false;
+					foreach($apiData["workspaceUsers"] as $thisUser) {
+						if($thisUser["role"] == "OWNER") {
+							$ownerId = $thisUser["userId"];
+							break;
+						}
+					}
+
+					if($ownerId) {
+						foreach($importFrom as $researcherKey => $thisResearcher) {
+							if($thisResearcher["userId"] == $ownerId) {
+								$importFrom = &$importFrom[$researcherKey];
+								continue 2;
+							}
+						}
+					}
+
+					## This line should only be reached if $ownerId not found or if $ownerId doesn't exist in the current array
+					return false;
+				}
+			}
 			else {
 				return false;
 			}
@@ -392,7 +420,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		if($fieldMetadata["field_type"] == "checkbox") {
 			$value = [];
 			foreach($importFrom as $checkboxRaw) {
-				$value[] = htmlspecialchars($checkboxRaw);
+				$value[htmlspecialchars($checkboxRaw)] = 1;
 			}
 			return $value;
 		}
