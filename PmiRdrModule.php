@@ -365,6 +365,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	}
 
 	public function getApiValue($apiData,$apiField,$fieldMetadata = false) {
+		if($apiField == "@NOW") {
+			return date("Y-m-d H:i:s");
+		}
+
 		$apiFieldList = explode("/",$apiField);
 		$importFrom = &$apiData;
 
