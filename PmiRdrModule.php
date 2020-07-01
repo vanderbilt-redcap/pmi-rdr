@@ -59,9 +59,11 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
 		## Prevent hook from being called by the RDR cron
-		if(constant(self::RECORD_CREATED_BY_MODULE.$record) == 1) {
+		if(constant(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record) == 1) {
 			return;
 		}
+
+		define(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record,1);
 
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
@@ -79,14 +81,14 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
 		$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
 		$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$project_id);
-//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$project_id);
+		$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$project_id);
 		$dataFormats = $this->getProjectSetting("rdr-data-format",$project_id);
 		$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$project_id);
 		$conditions = $this->getProjectSetting("rdr-conditions",$project_id);
 		$testingOnly = $this->getProjectSetting("rdr-test-only",$project_id);
 
 		foreach($rdrUrl as $urlKey => $thisUrl) {
-			if($dataConnectionTypes[$urlKey] != "push") {
+			if(!in_array($dataConnectionTypes[$urlKey], ["push","pipe"])) {
 				continue;
 			}
 			
@@ -103,76 +105,174 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 			## Check for conditions before trying to send
 			if(!empty($conditions[$urlKey])) {
-				$readyToSend = \REDCap::evaluateLogic($conditions[$urlKey],$project_id,$record,$event_id,$repeat_instance);
-				if(!$readyToSend) {
+				$readyToAct = \REDCap::evaluateLogic($conditions[$urlKey],$project_id,$record,$event_id,$repeat_instance);
+				if(!$readyToAct) {
 					if($testingOnly[$urlKey] == 1) {
-						error_log("RDR Test: Not Sent $record ~ ".var_export($readyToSend,true)." ~ ".$conditions[$urlKey]);
+						error_log("RDR Test: No action taken on $record ~ ".var_export($readyToAct,true)." ~ ".$conditions[$urlKey]);
 					}
 					continue;
 				}
 			}
-			
-			$exportData = [];
-			foreach($dataMapping as $redcapField => $apiField) {
-				$apiNestedFields = explode("/",$apiField);
-				
-				if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
-					if(empty($data[$redcapField])) {
+
+			if($dataConnectionTypes[$urlKey] == "push") {
+				$exportData = [];
+				foreach($dataMapping as $redcapField => $apiField) {
+					$apiNestedFields = explode("/",$apiField);
+
+					if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
+						if(empty($data[$redcapField])) {
+							continue;
+						}
+
+						$importPlace = &$exportData;
+						if($dataFormats[$urlKey] == "assoc") {
+							$importPlace = &$importPlace[$record];
+						}
+
+						foreach($apiNestedFields as $tempField) {
+							$importPlace = &$importPlace[$tempField];
+						}
+
+						$value = $data[$redcapField];
+						if($metadata[$redcapField]["field_type"] == "checkbox") {
+							$value = [];
+							foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
+								if($checkboxChecked == 1) {
+									$value[] = $checkboxRaw;
+								}
+							}
+						}
+						else if($metadata[$redcapField]["field_type"] == "yesno") {
+							$value = boolval($value);
+						}
+						else if(is_numeric($value)) {
+							$value = (int)$value;
+						}
+						$importPlace = $value;
+					}
+				}
+
+				if(!empty($exportData)) {
+					$exportData = [$exportData];
+	//				$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
+
+	//				$exportData = json_encode($exportData);
+					## TODO Temp test string to see if works
+	//				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
+	//				$exportData = json_decode($exportData,true);
+
+					if($testingOnly[$urlKey] != 1) {
+						$results = $httpClient->post($thisUrl,["json" => $exportData]);
+						if($results->getStatusCode() != 200) {
+							$message = $results->getBody()->getContents();
+							error_log("RDR Test: ".var_export($results->getHeaders(),true));
+							error_log("RDR Test: ".var_export($message,true));
+
+							\REDCap::logEvent("Pushed decision to RDR","Failed: \n".$message,"",$record,$event_id,$project_id);
+						}
+						else {
+							\REDCap::logEvent("Pushed decision to RDR","Success","",$record,$event_id,$project_id);
+						}
+					}
+					else {
+						error_log("RDR Test: Ready to Send $record ~ ".var_export($exportData,true));
+					}
+				}
+			}
+			else if($dataConnectionTypes[$urlKey] == "pipe") {
+				$thisRecord = $record;
+				if(!empty($redcapRecordFields[$urlKey])) {
+					$thisRecord = $data[$redcapRecordFields[$urlKey]];
+				}
+
+				## Skip if we don't have a record ID to match for piping
+				if(empty($thisRecord)) {
+					continue;
+				}
+
+				## Pull the data from the API and then decode it (assuming its JSON for now)
+				$results = $httpClient->get($thisUrl."?last_snapshot_id=".($thisRecord - 1));
+
+				$decodedResults = json_decode($results->getBody()->getContents(),true);
+
+				## Export full API results if trying to debug
+				if($_GET['debug'] == 1) {
+					echo "Debug Test<Br />";
+					echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
+					continue;
+				}
+
+				## This value is set if an error is returned from the RDR
+				if($decodedResults["message"] != "") {
+					echo "Error getting results: received message \"".$decodedResults["message"]."\"<br />";
+					continue;
+				}
+
+				## Start looping through the data returned from the API (this is the "record" level)
+				foreach($decodedResults as $dataKey => $dataDetails) {
+					## This could be because an error message was received or the API data isn't formatted properly
+					if(!is_array($dataDetails)) {
 						continue;
 					}
 
-					$importPlace = &$exportData;
-					if($dataFormats[$urlKey] == "assoc") {
-						$importPlace = &$importPlace[$record];
+					## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
+					$dataRecordId = $dataKey;
+					if($dataFormats[$urlKey] == "flat") {
+						$dataRecordId = $dataDetails[$apiRecordFields[$urlKey]];
 					}
 
-					foreach($apiNestedFields as $tempField) {
-						$importPlace = &$importPlace[$tempField];
-					}
+					if($dataRecordId == $thisRecord) {
+						## This is the API record to be pulled in
 
-					$value = $data[$redcapField];
-					if($metadata[$redcapField]["field_type"] == "checkbox") {
-						$value = [];
-						foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
-							if($checkboxChecked == 1) {
-								$value[] = $checkboxRaw;
+						## Start with an empty data set for the record and start trying to pull data from the API array
+						$rowData = [];
+						foreach($dataMapping as $redcapField => $apiField) {
+							$checkboxMatches = [];
+
+							## Check REDCap metadata so that bool and raw data can be mapped properly
+							## "___[raw_value]" is used to map checkboxes one value at a time
+							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
+								$checkboxValue = $checkboxMatches[1];
+								$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+
+								if(!array_key_exists($checkboxFieldName,$rowData)) {
+									$rowData[$checkboxFieldName] = [];
+								}
+
+								$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
+							}
+							else {
+								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
 							}
 						}
-					}
-					else if($metadata[$redcapField]["field_type"] == "yesno") {
-						$value = boolval($value);
-					}
-					else if(is_numeric($value)) {
-						$value = (int)$value;
-					}
-					$importPlace = $value;
-				}
-			}
 
-			if(!empty($exportData)) {
-				$exportData = [$exportData];
-//				$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
+						if(count($rowData) > 0) {
+							## Filter out data is already exists in REDCap
+							$dataToSave = [];
+							foreach($rowData as $fieldName => $newValue) {
+								if(!empty($data[$fieldName])) {
+									$dataToSave[$fieldName] = $newValue;
+								}
+							}
 
-//				$exportData = json_encode($exportData);
-				## TODO Temp test string to see if works
-//				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
-//				$exportData = json_decode($exportData,true);
+							if(count($dataToSave) == 0) {
+								break;
+							}
 
-				if($testingOnly[$urlKey] != 1) {
-					$results = $httpClient->post($thisUrl,["json" => $exportData]);
-					if($results->getStatusCode() != 200) {
-						$message = $results->getBody()->getContents();
-						error_log("RDR Test: ".var_export($results->getHeaders(),true));
-						error_log("RDR Test: ".var_export($message,true));
+							if($testingOnly[$urlKey] == 1) {
+								echo "<pre>";error_log("PMI Test - ".var_export($rowData,true));echo "</pre>";echo "<br />";
+								break;
+							}
 
-						\REDCap::logEvent("Pushed decision to RDR","Failed: \n".$message,"",$record,$event_id,$project_id);
+							## Time to save the data
+							$results = $this->saveData($project_id,$record,$event_id,$rowData);
+
+							if(count($results["errors"]) > 0) {
+								error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+							}
+						}
+						break;
 					}
-					else {
-						\REDCap::logEvent("Pushed decision to RDR","Success","",$record,$event_id,$project_id);
-					}
-				}
-				else {
-					error_log("RDR Test: Ready to Send $record ~ ".var_export($exportData,true));
 				}
 			}
 		}

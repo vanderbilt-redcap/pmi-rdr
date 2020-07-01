@@ -66,8 +66,9 @@
 					"name": "Pull or Push",
 					"type": "dropdown",
 					"choices": [
-						{"value": "pull","name": "Pull"},
-						{"value": "push","name": "Push"}
+						{"value": "pull","name": "Pull All Records"},
+						{"value": "push","name": "Push Record on Save"},
+						{"value": "pipe","name": "Pipe Data from RDR on Save Record"}
 					]
 				},
 				{
