@@ -27,7 +27,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$this->credentials = false;
 
 		try {
-			if($_SERVER['APPLICATION_ID']) {
+			if($_SERVER['APPLICATION_ID'] || $_SERVER['GAE_APPLICATION']) {
 				$datastore = new DatastoreClient();
 
 				$query = $datastore->query()->kind($credentialsKind);
