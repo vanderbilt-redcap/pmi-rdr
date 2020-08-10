@@ -191,7 +191,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				}
 
 				## Pull the data from the API and then decode it (assuming its JSON for now)
-				$results = $httpClient->get($thisUrl."?last_snapshot_id=".($thisRecord - 1));
+				$results = $httpClient->get($thisUrl."?snapshot_id=".($thisRecord));
 
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
 
@@ -279,7 +279,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	}
 
 	## RDR Cron method to pull data in
-	public function rdr_pull($debugApi = false) {
+	public function rdr_pull($debugApi = false,$singleRecord = false) {
 		error_log("RDR: Ran pull cron");
 		
 		if(is_array($debugApi)) {
@@ -354,8 +354,19 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				$formName = $metadata[$fieldName]["form_name"];
 				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
 
+				$recordIds = array_keys($recordList);
+				$maxRecordId = max($recordIds);
+
 				## Pull the data from the API and then decode it (assuming its JSON for now)
-				$results = $httpClient->get($thisUrl);
+				if($singleRecord) {
+					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
+				}
+				else if(count($recordIds) > 0) {
+					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
+				}
+				else {
+					$results = $httpClient->get($thisUrl);
+				}
 
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
 
