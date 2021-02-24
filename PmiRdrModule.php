@@ -293,12 +293,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		/** @var GuzzleHttp\ClientInterface $httpClient */
 		$httpClient = $client->authorize();
 
-		$projectQuery = ExternalModules::getEnabledProjects($this->PREFIX);
-		$projectList = [];
-
-		while($row = $projectQuery->fetch_assoc()) {
-			$projectList[] = $row['project_id'];
-		}
+		$projectList = $this->framework->getProjectsWithModuleEnabled();
 
 		## Start by looping through all projects with this module enabled
 		foreach($projectList as $projectId) {
@@ -467,6 +462,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
 						}
 						catch(\Exception $e) {
+							$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
 							error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
 						}
 					}

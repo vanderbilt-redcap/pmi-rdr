@@ -6,6 +6,8 @@
 	"description": "Connects PMI REDCap to the RDR",
 
 	"documentation": "README.md",
+	
+	"framework-version": 5,
 
 	"authors": [
 		{
