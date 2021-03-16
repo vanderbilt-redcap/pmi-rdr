@@ -297,6 +297,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		## Start by looping through all projects with this module enabled
 		foreach($projectList as $projectId) {
+			## If a null or empty project ID gets passed in, skip it
+			if(!$projectId) {
+				continue;
+			}
 
 			## Pull event ID and Arm ID from the \Project object for this project
 			$proj = new \Project($projectId);
