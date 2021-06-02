@@ -7,6 +7,9 @@ use Google\Cloud\Datastore\DatastoreClient;
 class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	public $client;
 	public $credentials;
+	
+	private static $loggingEnabled;
+	private static $cachedMetadata;
 
 	const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
 
@@ -57,6 +60,22 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 	}
 	
+	public function getLoggingEnabled() {
+		if(self::$loggingEnabled === NULL) {
+			self::$loggingEnabled = $this->getSystemSetting("logging-enabled");
+		}
+		
+		return self::$loggingEnabled;
+	}
+	
+	public function getMetadata($projectId, $forms = NULL) {
+		if(!array_key_exists($projectId,self::$cachedMetadata)) {
+			self::$cachedMetadata[$projectId] = parent::getMetadata($projectId,$forms);
+		}
+		
+		return self::$cachedMetadata[$projectId];
+	}
+	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
 		## Prevent hook from being called by the RDR cron
 		if(constant(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record) == 1) {
@@ -71,17 +90,42 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		/** @var \GuzzleHttp\Client $httpClient */
 		$httpClient = $client->authorize();
 
-		$data = $this->getData($project_id,$record,$event_id);
+		$data = json_decode($this->getData($project_id,$record,"","json"),true);
+		$thisData = false;
+		$nonInstancedData = false;
+		$this->log("debug",["data" => json_encode($data)]);
+
+		
+		foreach($data as $instanceDetails) {
+			if(!array_key_exists("event_id",$instanceDetails) && !array_key_exists("redcap_repeat_instance",$instanceDetails)) {
+				$nonInstancedData = $instanceDetails;
+				$thisData = $instanceDetails;
+			}
+			
+			if((!array_key_exists("event_id", $instanceDetails) || $event_id == $instanceDetails["event_id"]) && 
+					$instanceDetails["redcap_repeat_instance"] == "") {
+				$nonInstancedData = $instanceDetails;
+			}
+			
+			if($instanceDetails["redcap_repeat_instrument"] == $instrument &&
+					(($repeat_instance == 1 && (
+						$instanceDetails["redcap_repeat_instance"] == 1 ||
+						$instanceDetails["redcap_repeat_instance"] == ""
+					)) || $repeat_instance == $instanceDetails["redcap_repeat_instance"])) {
+				$thisData = $instanceDetails;
+			}
+		}
+		$this->log("debug",["nonInstanceData" => json_encode($nonInstancedData),"instanceData" => json_encode($thisData)]);
 
 		$rdrUrl = $this->getProjectSetting("rdr-urls",$project_id);
-
-		$metadata = $this->getMetadata($project_id);
 
 		$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$project_id);
 		$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
 		$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$project_id);
 		$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$project_id);
+		$apiInstanceFields = $this->getProjectSetting("rdr-endpoint-instance",$project_id);
 		$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$project_id);
+		$redcapInstanceFields = $this->getProjectSetting("rdr-instance-field",$project_id);
 		$dataFormats = $this->getProjectSetting("rdr-data-format",$project_id);
 		$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$project_id);
 		$conditions = $this->getProjectSetting("rdr-conditions",$project_id);
@@ -134,7 +178,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						}
 
 						$value = $data[$redcapField];
-						if($metadata[$redcapField]["field_type"] == "checkbox") {
+						if($this->getMetadata($project_id)[$redcapField]["field_type"] == "checkbox") {
 							$value = [];
 							foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
 								if($checkboxChecked == 1) {
@@ -142,7 +186,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 								}
 							}
 						}
-						else if($metadata[$redcapField]["field_type"] == "yesno") {
+						else if($this->getMetadata($project_id)[$redcapField]["field_type"] == "yesno") {
 							$value = boolval($value);
 						}
 						else if(is_numeric($value)) {
@@ -242,7 +286,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 								$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
 							}
 							else {
-								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
+								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$this->getMetadata($project_id)[$redcapField]);
 							}
 						}
 
@@ -302,22 +346,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				continue;
 			}
 
-			## Pull event ID and Arm ID from the \Project object for this project
-			$proj = new \Project($projectId);
-			$proj->loadEvents();
-			$eventId = $proj->firstEventId;
-			$armId = $proj->firstArmId;
-
-			## Pull the project metadata
-			$metadata = $this->getMetadata($projectId);
-
 			## Pull the module settings needed for import from this project
 			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
 			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
 			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
 			$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
 			$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
-//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
+			$apiInstanceFields = $this->getProjectSetting("rdr-endpoint-instance",$projectId);
+			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
+			$redcapInstanceFields = $this->getProjectSetting("rdr-instance-field",$projectId);
 			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
 			$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
 			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
@@ -329,39 +366,54 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					continue;
 				}
 
-				## TODO This might be outdated now
-				## Check for a JSON version of the data mapping and pull directly from the other settings
-				## If it doesn't exist
-				if(empty($dataMappingJson[$urlKey])) {
-					$dataMapping = [];
-
-					foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
-						$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
-					}
-				}
-				else {
-					$dataMapping = json_decode($dataMappingJson[$urlKey],true);
-				}
+                $dataMapping = json_decode($dataMappingJson[$urlKey],true);
 
 				## This RDR doesn't have its data mapping set up yet (or it's set up improperly)
 				if(count($dataMapping) == 0) {
 					continue;
 				}
+				$firstField = $this->getRecordIdField($projectId);
+                $recordField = $redcapRecordFields[$urlKey];
+                $instanceField = $redcapInstanceFields[$urlKey];
 
 				## Pull the form name from the first field in the mapping along with the list of existing records
-				$fieldName = reset(array_keys($dataMapping));
-				$formName = $metadata[$fieldName]["form_name"];
-				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
+				$fieldNames = array_keys($dataMapping);
+				$fieldNames[] = $recordField;
+				$fieldNames[] = $firstField;
+				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldNames, "return_format" => "json"]);
 
-				$recordIds = array_keys($recordList);
-				$maxRecordId = max($recordIds);
+				$recordList = json_decode($recordList,true);
+
+				$maxSnapshot = 0;
+				
+				$recordIds = [];
+				foreach($recordList as $recordRow) {
+					if($instanceField) {
+						$maxSnapshot = max($maxSnapshot,$recordRow[$instanceField]);
+						if($recordRow["redcap_repeat_instance"] === "") {
+                            $recordIds[$recordRow[$firstField]]["record"] = $recordRow[$recordField];
+                            $recordIds[$recordRow[$firstField]]["record_id"] = $recordRow[$firstField];
+                        }
+						else {
+						    $recordIds[$recordRow[$firstField]]["instance"] = $recordRow[$instanceField];
+                            $recordIds[$recordRow[$firstField]]["instance_id"] = $recordRow["redcap_repeat_instance"];
+                        }
+					}
+					else if(!$instanceField) {
+						$maxSnapshot = max($maxSnapshot,$recordRow[$recordField]);
+						$recordIds[$recordRow[$firstField]] = [
+							"record" => $recordRow[$recordField],
+							"record_id" => $recordRow[$firstField]
+						];
+					}
+				}
 
 				## Pull the data from the API and then decode it (assuming its JSON for now)
 				if($singleRecord) {
 					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
 				}
 				else if(count($recordIds) > 0) {
-					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
+					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxSnapshot);
 				}
 				else {
 					$results = $httpClient->get($thisUrl);
@@ -394,6 +446,14 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					if($dataFormats[$urlKey] == "flat") {
 						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
 					}
+					
+					if($this->getLoggingEnabled()) {
+						$this->log("rdr_api_log",[
+							"record" => $recordId,
+							"project_id" => $projectId,
+							"data" => json_encode($dataDetails)
+						]);
+					}
 
 					## Don't try to import if the record already exists
 					## TODO See if we can find a way to update records without making it
@@ -403,75 +463,131 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					}
 
 					## Start with an empty data set for the record and start trying to pull data from the API array
-					$rowData = [];
+					$rowData = [$recordField => $recordId,
+                        $this->getRecordIdField($projectId) => $recordId];
 					foreach($dataMapping as $redcapField => $apiField) {
-
 						$checkboxMatches = [];
 
 						## Check REDCap metadata so that bool and raw data can be mapped properly
 						## "___[raw_value]" is used to map checkboxes one value at a time
 						if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
-							$checkboxValue = $checkboxMatches[1];
-							$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
-
-							if(!array_key_exists($checkboxFieldName,$rowData)) {
-								$rowData[$checkboxFieldName] = [];
-							}
-
-							$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
+							$rowData[$redcapField] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
 						}
 						else {
-							$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
+							$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$this->getMetadata($projectId)[$redcapField]);
 						}
 					}
-
+					
+					if($this->getLoggingEnabled()) {
+						$this->log("rdr_import_log",[
+							"record" => $recordId,
+							"project_id" => $projectId,
+							"data" => json_encode($rowData)
+						]);
+					}
+					
 					if($testingOnly[$urlKey] == "1") {
 						if(!$debugApi) {
 							echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
 						}
 					}
 					else {
-						self::checkShutdown();
-						
-						## Attempt to save the data
-						$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
-
-						if(count($results["errors"]) > 0) {
-							error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
-						}
-
-						try {
-							## Trigger alerts and notifications
-							$eta = new \Alerts();
-
-							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
-						}
-						## Catch issues with sending alerts
-						catch(\Exception $e) {
-							error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
-						}
-
-						## Add to records cache
-						\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
-
-						## Define a constant so that this module's own save hook isn't called
-						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
-
-						## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
-						$_GET['pid'] = $projectId;
-						$_GET['id'] = $recordId;
-
-						## Prevent module errors from crashing the whole import process
-						try {
-							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
-						}
-						catch(\Exception $e) {
-							$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
-							error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
-						}
+                        $this->saveSnapshotToRecord($projectId, $recordId, $rowData, $instanceField);
 					}
 				}
 			}
+		}
+	}
+	
+	public function saveSnapshotToRecord($projectId, $recordId, $rowData, $instanceField) {
+		self::checkShutdown();
+
+		$repeatingForms = $this->getRepeatingForms(NULL, $projectId);
+		$repeatingData = [];
+		$nonRepeatingData = [];
+		$nonRepeatingForm = "";
+
+		foreach($rowData as $fieldName => $fieldValue) {
+            $checkboxMatches = [];
+            $formField = $fieldName;
+
+            ## Check REDCap metadata so that bool and raw data can be mapped properly
+            ## "___[raw_value]" is used to map checkboxes one value at a time
+            if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$fieldName,$checkboxMatches)) {
+                $formField = substr($fieldName,0,strlen($checkboxMatches[1]) - strlen($checkboxMatches[0]));
+            }
+
+            $formName = $this->getMetadata($projectId)[$formField]["form_name"];
+            if(in_array($formName,$repeatingForms)) {
+                $repeatingData[$formName][$fieldName] = $fieldValue;
+            }
+            else {
+                $nonRepeatingForm = $formName;
+                $nonRepeatingData[$fieldName] = $fieldValue;
+            }
+        }
+
+		
+		## Pull event ID and Arm ID from the \Project object for this project
+		$proj = new \Project($projectId);
+		$proj->loadEvents();
+		$eventId = $proj->firstEventId;
+		$armId = $proj->firstArmId;
+		
+		## Attempt to save the non-repeating data
+		$results = $this->saveData($projectId,$recordId,$eventId,$nonRepeatingData);
+
+		if(count($results["errors"]) > 0) {
+			error_log("PMI RDR: Couldn't import non-repeating data: ".var_export($results["errors"],true));
+		}
+
+		if(count($repeatingData) > 0) {
+		    foreach($repeatingData as $formName => $repeatingRow) {
+		        $repeatingRow[$this->getRecordIdField($projectId)] = $recordId;
+
+                $results = $this->addOrUpdateInstances([$repeatingRow],$instanceField);
+
+                if(count($results["errors"]) > 0) {
+                    error_log("PMI RDR: Couldn't import repeating data: ".var_export($results["errors"],true));
+                }
+            }
+        }
+
+		try {
+			## Trigger alerts and notifications
+			$eta = new \Alerts();
+
+			$eta->saveRecordAction($projectId,$recordId,$nonRepeatingForm,$eventId);
+			foreach($repeatingData as $formName => $repeatingRow) {
+                $eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+            }
+		}
+		## Catch issues with sending alerts
+		catch(\Exception $e) {
+			error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
+		}
+
+		## Add to records cache
+		\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
+
+		## Define a constant so that this module's own save hook isn't called
+		define(self::RECORD_CREATED_BY_MODULE.$projectId."~".$recordId,1);
+
+		## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
+		$_GET['pid'] = $projectId;
+		$_GET['id'] = $recordId;
+
+		## Prevent module errors from crashing the whole import process
+		try {
+			ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$nonRepeatingForm,$eventId,NULL,NULL,NULL]);
+
+            foreach($repeatingData as $formName => $repeatingRow) {
+                ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+            }
+		}
+		catch(\Exception $e) {
+            $test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+            error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
 		}
 	}
 
