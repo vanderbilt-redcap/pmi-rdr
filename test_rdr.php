@@ -15,6 +15,7 @@ if(defined("SUPER_USER") && SUPER_USER == 1) {
 		$module->rdr_pull($_GET['debug'] == 1,$_GET["pull_record"]);
 	}
 	else {
+		ini_set("default_socket_timeout", 240);
 		$module->rdr_pull($_GET['debug'] == 1);
 	}
 }

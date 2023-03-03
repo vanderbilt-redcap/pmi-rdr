@@ -372,6 +372,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				## Export full API results if trying to debug
 				if($debugApi) {
 					echo "Debug Test<Br />";
+					echo "Results Details: ".$results->getStatusCode()."<br />";
 					echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
 					continue;
 				}
