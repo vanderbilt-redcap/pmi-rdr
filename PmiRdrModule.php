@@ -48,7 +48,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		catch(\Exception $e) {
 			$this->credentials = false;
 		}
-
+		
 		if(empty($this->credentials)) {
 			if (!empty($credentialsPath)) {
 				## Add function to find web_root and then append credentials path
@@ -67,13 +67,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
-
-		/** @var \GuzzleHttp\Client $httpClient */
 		$httpClient = $client->authorize();
 
 		$data = $this->getData($project_id,$record,$event_id);
 
-		$rdrUrl = $this->getProjectSetting("rdr-urls",$project_id);
 
 		$metadata = $this->getMetadata($project_id);
 
@@ -281,16 +278,17 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
 		error_log("RDR: Ran pull cron");
-		
+		### TODO Temporary cancel Cron
+		return;
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
 			$debugApi = false;
 		}
 
-		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
+		/** @var \Google_Client $client */
 		$client = $this->getGoogleClient();
 
-		/** @var GuzzleHttp\ClientInterface $httpClient */
+		/** @var \GuzzleHttp\ClientInterface $httpClient */
 		$httpClient = $client->authorize();
 
 		$projectList = $this->framework->getProjectsWithModuleEnabled();
@@ -324,6 +322,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 			## Loop through each of the URLs this project is pointed to
 			foreach($rdrUrl as $urlKey => $thisUrl) {
+				
 				## Only processing pull connections here, also skip empty URLs
 				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 					continue;
@@ -349,26 +348,59 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				}
 
 				## Pull the form name from the first field in the mapping along with the list of existing records
-				$fieldName = reset(array_keys($dataMapping));
-				$formName = $metadata[$fieldName]["form_name"];
-				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
-
-				$recordIds = array_keys($recordList);
-				$maxRecordId = max($recordIds);
+//				$fieldName = reset(array_keys($dataMapping));
+//				$formName = $metadata[$fieldName]["form_name"];
+//				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
+//
+//				$recordIds = array_keys($recordList);
+//				$maxRecordId = max($recordIds);
 
 				## Pull the data from the API and then decode it (assuming its JSON for now)
-				if($singleRecord) {
-					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
-				}
-				else if(count($recordIds) > 0) {
-					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
-				}
-				else {
-					$results = $httpClient->get($thisUrl);
-				}
-
+//				if($singleRecord) {
+//					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
+//				}
+//				else if(count($recordIds) > 0) {
+//					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
+//				}
+//				else {
+					$results = $httpClient->get($thisUrl."?page=1&status=ACTIVE");
+//				}
+				
+//				$httpClient->request()
 				$decodedResults = json_decode($results->getBody()->getContents(),true);
-
+				$headers = array_keys($decodedResults["data"][0]);
+				header('Content-Type: text/csv');
+				header("Content-Disposition: attachment; filename=\"RDR_Project_Dump\"");
+				$f = fopen("php://output","w");
+				fputcsv($f,$headers);
+				
+				foreach($decodedResults["data"] as $thisRecord) {
+					$outputRow = [];
+					foreach($thisRecord as $thisKey => $thisValue) {
+						if(is_array($thisValue)) {
+							$thisValue = json_encode($thisValue);
+						}
+						$outputRow[] = $thisValue;
+					}
+					fputcsv($f,$outputRow);
+				}
+				$results = $httpClient->get($thisUrl."?page=2&status=ACTIVE");
+				
+				$decodedResults = json_decode($results->getBody()->getContents(),true);
+				
+				foreach($decodedResults["data"] as $thisRecord) {
+					$outputRow = [];
+					foreach($thisRecord as $thisKey => $thisValue) {
+						if(is_array($thisValue)) {
+							$thisValue = json_encode($thisValue);
+						}
+						$outputRow[] = $thisValue;
+					}
+					fputcsv($f,$outputRow);
+				}
+				die();
+				
+				
 				## Export full API results if trying to debug
 				if($debugApi) {
 					echo "Debug Test<Br />";
@@ -398,9 +430,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					## Don't try to import if the record already exists
 					## TODO See if we can find a way to update records without making it
 					## TODO run so slowly that it can never finish in App Engine (60 second timeout)
-					if(array_key_exists($recordId,$recordList)) {
-						continue;
-					}
+//					if(array_key_exists($recordId,$recordList)) {
+//						continue;
+//					}
 
 					## Start with an empty data set for the record and start trying to pull data from the API array
 					$rowData = [];
@@ -553,18 +585,22 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				if($_GET['debug']) {
 					echo "<pre>Creating client without any credentials\n";echo "</pre>";echo "<br />";
 				}
+				error_log("Using stored credentials ".\Google_Service_Oauth2::USERINFO_EMAIL);
 				$this->client = new \Google_Client([]);
 				$this->client->useApplicationDefaultCredentials();
 			}
 			else {
 				$this->client = new \Google_Client([]);
-				$this->client->setAuthConfig($this->credentials);
+				$this->client->useApplicationDefaultCredentials();
+//				$this->client->setAuthConfig($this->credentials);
+				error_log("Using stored credentials ".\Google_Service_Oauth2::USERINFO_EMAIL);
 			}
 
-			$this->client->addScope("profile");
-			$this->client->addScope("email");
+//			$this->client->addScope("profile");
+//			$this->client->addScope("email");
+			$this->client->addScope(\Google_Service_Oauth2::USERINFO_EMAIL);
 
-			$authUserEmail = $this->getSystemSetting("auth-user-email");
+//			$authUserEmail = $this->getSystemSetting("auth-user-email");
 
 			if($authUserEmail) {
 				$this->client->setSubject($authUserEmail);
