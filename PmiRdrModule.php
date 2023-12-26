@@ -59,7 +59,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	
 	public function redcap_save_record( $project_id, $record, $instrument, $event_id, $group_id, $survey_hash = NULL, $response_id = NULL, $repeat_instance = 1 ) {
 		## Prevent hook from being called by the RDR cron
-		if(constant(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record) == 1) {
+		if(defined(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record) &&
+				constant(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record) == 1) {
 			return;
 		}
 
