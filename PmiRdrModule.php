@@ -506,148 +506,148 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			}
 			
 			if($allUrlsCached) {
-			## Pull event ID and Arm ID from the \Project object for this project
-			$proj = new \Project($projectId);
-			$proj->loadEvents();
-			$eventId = $proj->firstEventId;
-			$armId = $proj->firstArmId;
-
-			## Pull the project metadata
-			$metadata = $this->getMetadata($projectId);
-
-			## Pull the module settings needed for import from this project
-			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
-			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
-			$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
-			$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
-//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
-			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
-			$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
-
-			## Loop through each of the URLs this project is pointed to
-			foreach($rdrUrls as $urlKey => $thisUrl) {
-				## Only processing pull connections here, also skip empty URLs
-				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
-					continue;
-				}
-
-				## TODO This might be outdated now
-				## Check for a JSON version of the data mapping and pull directly from the other settings
-				## If it doesn't exist
-				if(empty($dataMappingJson[$urlKey])) {
-					$dataMapping = [];
-
-					foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
-						$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
-					}
-				}
-				else {
-					$dataMapping = json_decode($dataMappingJson[$urlKey],true);
-				}
-
-				## This RDR doesn't have its data mapping set up yet (or it's set up improperly)
-				if(count($dataMapping) == 0) {
-					continue;
-				}
-
-				## Pull the form name from the first field in the mapping along with the list of existing records
-				$fieldName = reset(array_keys($dataMapping));
-				$formName = $metadata[$fieldName]["form_name"];
-				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
-
-				$recordIds = array_keys($recordList);
-				$maxRecordId = max($recordIds);
-				
-				## TODO Need to have this pull from cache instead
-				$decodedResults = $this->getCachedDataByURL($thisUrl);
-				
-				## Start looping through the data returned from the API (this is the "record" level)
-				foreach($decodedResults as $dataKey => $dataDetails) {
-					## This could be because an error message was received or the API data isn't formatted properly
-					## Or if not yet at $maxRecordId
-					if(!is_array($dataDetails) || $dataKey < $maxRecordId) {
+				## Pull event ID and Arm ID from the \Project object for this project
+				$proj = new \Project($projectId);
+				$proj->loadEvents();
+				$eventId = $proj->firstEventId;
+				$armId = $proj->firstArmId;
+	
+				## Pull the project metadata
+				$metadata = $this->getMetadata($projectId);
+	
+				## Pull the module settings needed for import from this project
+				$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
+				$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+				$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+				$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
+	//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
+				$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
+				$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
+	
+				## Loop through each of the URLs this project is pointed to
+				foreach($rdrUrls as $urlKey => $thisUrl) {
+					## Only processing pull connections here, also skip empty URLs
+					if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 						continue;
 					}
-
-					## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
-					$recordId = $dataKey;
-					if($dataFormats[$urlKey] == "flat") {
-						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
-					}
-
-					## Don't try to import if the record already exists
-					## TODO See if we can find a way to update records without making it
-					## TODO run so slowly that it can never finish in App Engine (60 second timeout)
-					if(array_key_exists($recordId,$recordList)) {
-						continue;
-					}
-
-					## Start with an empty data set for the record and start trying to pull data from the API array
-					$rowData = [];
-					foreach($dataMapping as $redcapField => $apiField) {
-
-						$checkboxMatches = [];
-
-						## Check REDCap metadata so that bool and raw data can be mapped properly
-						## "___[raw_value]" is used to map checkboxes one value at a time
-						if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
-							$checkboxValue = $checkboxMatches[1];
-							$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
-
-							if(!array_key_exists($checkboxFieldName,$rowData)) {
-								$rowData[$checkboxFieldName] = [];
-							}
-
-							$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
-						}
-						else {
-							$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
-						}
-					}
-
-					if($testingOnly[$urlKey] == "1") {
-						if(!$debugApi) {
-							echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
+	
+					## TODO This might be outdated now
+					## Check for a JSON version of the data mapping and pull directly from the other settings
+					## If it doesn't exist
+					if(empty($dataMappingJson[$urlKey])) {
+						$dataMapping = [];
+	
+						foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
+							$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
 						}
 					}
 					else {
-						self::checkShutdown();
-						
-						## Attempt to save the data
-						$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
-
-						if(count($results["errors"]) > 0) {
-							error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+						$dataMapping = json_decode($dataMappingJson[$urlKey],true);
+					}
+	
+					## This RDR doesn't have its data mapping set up yet (or it's set up improperly)
+					if(count($dataMapping) == 0) {
+						continue;
+					}
+	
+					## Pull the form name from the first field in the mapping along with the list of existing records
+					$fieldName = reset(array_keys($dataMapping));
+					$formName = $metadata[$fieldName]["form_name"];
+					$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
+	
+					$recordIds = array_keys($recordList);
+					$maxRecordId = max($recordIds);
+					
+					$decodedResults = $this->getCachedDataByURL($thisUrl);
+					
+					## Start looping through the data returned from the API (this is the "record" level)
+					foreach($decodedResults as $dataKey => $dataDetails) {
+						## This could be because an error message was received or the API data isn't formatted properly
+						## Or if not yet at $maxRecordId
+						if(!is_array($dataDetails) || $dataKey < $maxRecordId) {
+							continue;
 						}
-
-						try {
-							## Trigger alerts and notifications
-							$eta = new \Alerts();
-
-							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+	
+						## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
+						$recordId = $dataKey;
+						if($dataFormats[$urlKey] == "flat") {
+							$recordId = $dataDetails[$apiRecordFields[$urlKey]];
 						}
-						## Catch issues with sending alerts
-						catch(\Exception $e) {
-							error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
+	
+						## Don't try to import if the record already exists
+						## TODO See if we can find a way to update records without making it
+						## TODO run so slowly that it can never finish in App Engine (60 second timeout)
+						if(array_key_exists($recordId,$recordList)) {
+							continue;
 						}
-
-						## Add to records cache
-						\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
-
-						## Define a constant so that this module's own save hook isn't called
-						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
-
-						## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
-						$_GET['pid'] = $projectId;
-						$_GET['id'] = $recordId;
-
-						## Prevent module errors from crashing the whole import process
-						try {
-							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+	
+						## Start with an empty data set for the record and start trying to pull data from the API array
+						$rowData = [];
+						foreach($dataMapping as $redcapField => $apiField) {
+	
+							$checkboxMatches = [];
+	
+							## Check REDCap metadata so that bool and raw data can be mapped properly
+							## "___[raw_value]" is used to map checkboxes one value at a time
+							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
+								$checkboxValue = $checkboxMatches[1];
+								$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+	
+								if(!array_key_exists($checkboxFieldName,$rowData)) {
+									$rowData[$checkboxFieldName] = [];
+								}
+	
+								$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
+							}
+							else {
+								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
+							}
 						}
-						catch(\Exception $e) {
-							$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
-							error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+	
+						if($testingOnly[$urlKey] == "1") {
+							if(!$debugApi) {
+								echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
+							}
+						}
+						else {
+							self::checkShutdown();
+							
+							## Attempt to save the data
+							$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
+	
+							if(count($results["errors"]) > 0) {
+								error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+							}
+	
+							try {
+								## Trigger alerts and notifications
+								$eta = new \Alerts();
+	
+								$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+							}
+							## Catch issues with sending alerts
+							catch(\Exception $e) {
+								error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
+							}
+	
+							## Add to records cache
+							\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
+	
+							## Define a constant so that this module's own save hook isn't called
+							define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
+	
+							## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
+							$_GET['pid'] = $projectId;
+							$_GET['id'] = $recordId;
+	
+							## Prevent module errors from crashing the whole import process
+							try {
+								ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+							}
+							catch(\Exception $e) {
+								$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+								error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+							}
 						}
 					}
 				}
