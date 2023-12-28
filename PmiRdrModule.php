@@ -9,6 +9,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 	public $credentials;
 
 	const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
+	const RDR_CACHE_STATUS = "cache_status";
+	const RDR_CACHE_SNAPSHOTS = "current_snapshots";
 
 	public function __construct() {
 		parent::__construct();
@@ -277,6 +279,162 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 				}
 			}
 		}
+	}
+	
+	public function resume_cache_or_restart($rdrUrl) {
+		## Have to reset $_GET['pid'] so this function uses system level logging
+		$oldProjectId = $_GET['pid'];
+		$_GET['pid'] = NULL;
+		
+		$q = $this->queryLogs(
+			"SELECT status, currentSnapshots, timeout
+			WHERE message = '".self::RDR_CACHE_STATUS."',
+				AND url = ?
+			ORDER BY timestamp DESC LIMIT 1", [$rdrUrl]);
+		
+		$cacheLog = db_fetch_assoc($q);
+		$returnValue = false;
+		
+		if($cacheLog['status'] == "done") {
+			if($cacheLog['timeout'] < time()) {
+				$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
+				
+				## Remove old backup and set current cache to backup
+				$oldCachedSnapshots = $this->getSystemSetting($snapshotSetting);
+				
+				$this->setSystemSetting($snapshotSetting."_old", $oldCachedSnapshots);
+				$this->setSystemSetting($snapshotSetting, "{}");
+				
+				## Start pulling new cache
+				$this->fetchNextSnapshots($rdrUrl, []);
+			}
+			else {
+				$returnValue =  true;
+			}
+		}
+		else {
+			$currentSnapshots = $cacheLog['currentSnapshots'];
+			
+			## Start doing the next batch of snapshots
+			$this->fetchNextSnapshots($rdrUrl, $currentSnapshots);
+		}
+		
+		## Restore $_GET PID
+		$_GET['pid'] = $oldProjectId;
+		return $returnValue;
+	}
+	
+	public function getCacheSettingByUrl($rdrUrl) {
+		$cachedSnapshots = $this->getSystemSetting(self::RDR_CACHE_SNAPSHOTS);
+		$cachedSnapshots = json_decode($cachedSnapshots, true);
+		
+		$snapshotSetting = false;
+		$saveNewSnapshotUrl = false;
+		
+		## Find snapshot location for this URL
+		foreach($cachedSnapshots as $thisSnapshot) {
+			$thisUrl = $thisSnapshot['url'];
+			if($thisUrl == $rdrUrl) {
+				$snapshotSetting = $thisSnapshot['setting_name'];
+			}
+		}
+		
+		## Create a new snapshot setting id and verify uniqueness
+		while($snapshotSetting === false) {
+			$saveNewSnapshotUrl = true;
+			$snapshotSetting = "cache_id_".uniqid();
+			foreach($cachedSnapshots as $thisSnapshot) {
+				if($thisSnapshot['setting_name'] == $snapshotSetting) {
+					$snapshotSetting = false;
+					break;
+				}
+			}
+		}
+		
+		if($saveNewSnapshotUrl) {
+			$cachedSnapshots[] = [
+				"url" => $rdrUrl,
+				"setting_name" => $snapshotSetting
+			];
+			$cacheToSave = json_encode($cachedSnapshots);
+			
+			if($cacheToSave) {
+				$this->setSystemSetting(self::RDR_CACHE_SNAPSHOTS, $cacheToSave);
+			}
+		}
+		
+		return $snapshotSetting;
+	}
+	
+	
+	public function fetchNextSnapshots($rdrUrl, $currentSnapshots) {
+		## Have to reset $_GET['pid'] so this function uses system level logging
+		$oldProjectId = $_GET['pid'];
+		$_GET['pid'] = NULL;
+		
+		$isLastSnapshot = false;
+		
+		$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
+		
+		$storedSnapshots = $this->getSystemSetting($snapshotSetting);
+		$storedSnapshots = json_decode($storedSnapshots, true) ?? [];
+		
+		$latestSnapshot = max($currentSnapshots);
+		
+		## Pull the data from the API and then decode it (assuming its JSON for now)
+		$rdrUrl = $rdrUrl."?last_snapshot_id=".$latestSnapshot;
+		$newSnapshots = $this->rdrPullSnapshotsFromAPI($rdrUrl, false);
+		
+		foreach($newSnapshots as $snapshotKey => $thisSnapshot) {
+			$storedSnapshots[$snapshotKey] = $thisSnapshot;
+			$currentSnapshots[] = $snapshotKey;
+		}
+		
+		$storedSnapshots = json_encode($storedSnapshots);
+		$this->setSystemSetting($snapshotSetting, $storedSnapshots);
+		
+		if($isLastSnapshot) {
+			$this->log(self::RDR_CACHE_STATUS,[
+				self::RDR_CACHE_SNAPSHOTS => $currentSnapshots,
+				self::RDR_CACHE_STATUS => "done",
+				"url" => $rdrUrl
+			]);
+			
+			## Restore $_GET PID
+			$_GET['pid'] = $oldProjectId;
+			return true;
+		}
+		
+		$this->log(self::RDR_CACHE_STATUS,[
+			self::RDR_CACHE_SNAPSHOTS => $currentSnapshots,
+			self::RDR_CACHE_STATUS => "not done",
+			"url" => $rdrUrl
+		]);
+		
+		## Restore $_GET PID
+		$_GET['pid'] = $oldProjectId;
+		return false;
+	}
+	
+	public function rdrPullSnapshotsFromAPI($rdrUrl, $debugApi = false) {
+		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
+		$client = $this->getGoogleClient();
+		
+		/** @var GuzzleHttp\ClientInterface $httpClient */
+		$httpClient = $client->authorize();
+		
+		$results = $httpClient->get($rdrUrl);
+		
+		$decodedResults = json_decode($results->getBody()->getContents(),true);
+		
+		## Export full API results if trying to debug
+		if($debugApi) {
+			echo "Debug Test<Br />";
+			echo "Results Details: ".$results->getStatusCode()."<br />";
+			echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
+		}
+		
+		return $decodedResults;
 	}
 
 	## RDR Cron method to pull data in
