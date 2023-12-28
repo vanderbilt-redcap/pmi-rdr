@@ -154,6 +154,11 @@
 			"key": "auth-user-email",
 			"name": "Authorized User to Perform GSuite Actions",
 			"type": "text"
+		},
+		{
+			"key": "timeout_duration",
+			"name": "How long to cache results for RDR URLs",
+			"type": "text"
 		}
 	],
 

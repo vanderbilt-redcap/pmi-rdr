@@ -324,6 +324,16 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		return $returnValue;
 	}
 	
+	public function getCachedDataByURL($rdrUrl) {
+		$cacheSetting = $this->getCacheSettingByUrl($rdrUrl);
+		
+		$cachedData = $this->getSystemSetting($cacheSetting);
+		
+		$cachedData = json_decode($cachedData, true);
+		
+		return $cachedData;
+	}
+	
 	public function getCacheSettingByUrl($rdrUrl) {
 		$cachedSnapshots = $this->getSystemSetting(self::RDR_CACHE_SNAPSHOTS);
 		$cachedSnapshots = json_decode($cachedSnapshots, true);
@@ -377,7 +387,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
 		
 		$storedSnapshots = $this->getSystemSetting($snapshotSetting);
-		$storedSnapshots = json_decode($storedSnapshots, true) ?? [];
+		$storedSnapshots = json_decode($storedSnapshots, true) ?: [];
 		
 		$latestSnapshot = max($currentSnapshots);
 		
@@ -393,11 +403,17 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$storedSnapshots = json_encode($storedSnapshots);
 		$this->setSystemSetting($snapshotSetting, $storedSnapshots);
 		
+		## TODO Not currently sure how to check if last snapshot, so just always assuming last
+		## It's possible the API changed and there's no longer away to limit count of responses
+		$isLastSnapshot = true;
+		
 		if($isLastSnapshot) {
+			$timeout = ((int)$this->getSystemSetting('timeout_duration')) ?: 24*60*60;
 			$this->log(self::RDR_CACHE_STATUS,[
 				self::RDR_CACHE_SNAPSHOTS => $currentSnapshots,
 				self::RDR_CACHE_STATUS => "done",
-				"url" => $rdrUrl
+				"url" => $rdrUrl,
+				"timeout" => time() + $timeout
 			]);
 			
 			## Restore $_GET PID
@@ -431,7 +447,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		if($debugApi) {
 			echo "Debug Test<Br />";
 			echo "Results Details: ".$results->getStatusCode()."<br />";
-			echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
+			echo "Total Records Pulled: ".count($decodedResults)."<br />";
+			if(count($decodedResults) > 1000) {
+				$outputResults = array_slice($decodedResults, 0, 1000);
+			}
+			else {
+				$outputResults = $decodedResults;
+			}
+			
+			echo "<pre>".htmlspecialchars(var_export($outputResults,true))."</pre><br />";
 		}
 		
 		return $decodedResults;
@@ -439,28 +463,49 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
-		error_log("RDR: Ran pull cron");
+		$this->log("RDR: Ran pull cron");
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
 			$debugApi = false;
 		}
 
-		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
-		$client = $this->getGoogleClient();
-
-		/** @var GuzzleHttp\ClientInterface $httpClient */
-		$httpClient = $client->authorize();
-
+		$cronBeginTime = microtime(true);
 		$projectList = $this->framework->getProjectsWithModuleEnabled();
 
-		## Start by looping through all projects with this module enabled
+		## Start by looping through all projects with this module enabled to update cache
 		foreach($projectList as $projectId) {
 			## If a null or empty project ID gets passed in, skip it
 			if(!$projectId) {
 				continue;
 			}
-
+			
+			$allUrlsCached = true;
+			
+			## Cache the cron results for this project,
+			## stop if over 90 seconds for single pull or 240 for whole cron
+			$rdrUrls = $module->getProjectSetting("rdr-urls");
+			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
+			foreach($rdrUrls as $urlKey => $thisUrl) {
+				## Only processing pull connections here, also skip empty URLs
+				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
+					continue;
+				}
+				
+				$startTime = microtime(true);
+				
+				$cacheDone = $this->resume_cache_or_restart($thisUrl);
+				if(!$cacheDone) {
+					$allUrlsCached = false;
+				}
+				
+				$endTime = microtime(true);
+				if(($endTime - $startTime) > 90 || ($endTime - $cronBeginTime) > 240) {
+					continue;
+				}
+			}
+			
+			if($allUrlsCached) {
 			## Pull event ID and Arm ID from the \Project object for this project
 			$proj = new \Project($projectId);
 			$proj->loadEvents();
@@ -471,7 +516,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			$metadata = $this->getMetadata($projectId);
 
 			## Pull the module settings needed for import from this project
-			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
 			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
 			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
 			$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
@@ -479,10 +523,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 //			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
 			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
 			$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
-			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
 
 			## Loop through each of the URLs this project is pointed to
-			foreach($rdrUrl as $urlKey => $thisUrl) {
+			foreach($rdrUrls as $urlKey => $thisUrl) {
 				## Only processing pull connections here, also skip empty URLs
 				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 					continue;
@@ -514,38 +557,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 				$recordIds = array_keys($recordList);
 				$maxRecordId = max($recordIds);
-
-				## Pull the data from the API and then decode it (assuming its JSON for now)
-				if($singleRecord) {
-					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
-				}
-				else if(count($recordIds) > 0) {
-					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
-				}
-				else {
-					$results = $httpClient->get($thisUrl);
-				}
-
-				$decodedResults = json_decode($results->getBody()->getContents(),true);
-
-				## Export full API results if trying to debug
-				if($debugApi) {
-					echo "Debug Test<Br />";
-					echo "Results Details: ".$results->getStatusCode()."<br />";
-					echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
-					continue;
-				}
-
-				## This value is set if an error is returned from the RDR
-				if($decodedResults["message"] != "") {
-					echo "Error getting results: received message \"".$decodedResults["message"]."\"<br />";
-					continue;
-				}
-
+				
+				## TODO Need to have this pull from cache instead
+				$decodedResults = $this->getCachedDataByURL($thisUrl);
+				
 				## Start looping through the data returned from the API (this is the "record" level)
 				foreach($decodedResults as $dataKey => $dataDetails) {
 					## This could be because an error message was received or the API data isn't formatted properly
-					if(!is_array($dataDetails)) {
+					## Or if not yet at $maxRecordId
+					if(!is_array($dataDetails) || $dataKey < $maxRecordId) {
 						continue;
 					}
 

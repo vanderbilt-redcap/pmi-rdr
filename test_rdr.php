@@ -20,14 +20,14 @@ if(defined("SUPER_USER") && SUPER_USER == 1) {
 		<tr><td>Run RDR Pull With This Value:</td><td><input type='text' data-lpignore='true' value='".htmlspecialchars($_GET['pull_latest_record'])."' name='pull_latest_record' /></td></tr>
 		<tr><td>Workspace to pull:</td><td><input type='text' data-lpignore='true' value='".htmlspecialchars($_GET['pull_record'])."' name='pull_record' /></td></tr>
 		<tr><td>Check to run the cron:</td><td><input type='checkbox' data-lpignore='true' value='1' ".(empty($_GET['run_cron']) ? "" : "checked")." name='run_cron' /></td></tr>
+		<tr><td>Check to output debug:</td><td><input type='checkbox' data-lpignore='true' value='1' ".(empty($_GET['debug']) ? "" : "checked")." name='debug' /></td></tr>
 		<tr><td><input type='submit' value='Submit' /></td></tr>
 	</table></form>";
 	
 	if($_GET['pull_latest_record']) {
 		$rdrUrls = $module->getProjectSetting("rdr-urls");
 		foreach($rdrUrls as $thisUrl) {
-			$thisUrl .= "?last_snapshot_id=".$_GET['pull_latest_record'];
-			$module->rdrPullSnapshotsFromAPI($thisUrl, true);
+			$module->rdrPullSnapshotsFromAPI($thisUrl, $_GET['debug']);
 		}
 	}
 	
