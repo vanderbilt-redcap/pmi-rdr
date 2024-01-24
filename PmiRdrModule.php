@@ -287,23 +287,23 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$_GET['pid'] = NULL;
 		
 		$q = $this->queryLogs(
-			"SELECT status, currentSnapshots, timeout
-			WHERE message = '".self::RDR_CACHE_STATUS."',
+			"SELECT ".self::RDR_CACHE_STATUS.", ".self::RDR_CACHE_SNAPSHOTS.", timeout
+			WHERE message = '".self::RDR_CACHE_STATUS."'
 				AND url = ?
 			ORDER BY timestamp DESC LIMIT 1", [$rdrUrl]);
 		
 		$cacheLog = db_fetch_assoc($q);
 		$returnValue = false;
 		
-		if($cacheLog['status'] == "done") {
+		if($cacheLog[self::RDR_CACHE_STATUS] == "done") {
 			if($cacheLog['timeout'] < time()) {
 				$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
 				
 				## Remove old backup and set current cache to backup
-				$oldCachedSnapshots = $this->getSystemSetting($snapshotSetting);
+				$oldCachedSnapshots = $this->decodeSnapshotsFromStorage($snapshotSetting);
 				
-				$this->setSystemSetting($snapshotSetting."_old", $oldCachedSnapshots);
-				$this->setSystemSetting($snapshotSetting, "{}");
+				$this->encodeSnapshotsForStorage($oldCachedSnapshots, $snapshotSetting."_old");
+				$this->encodeSnapshotsForStorage([], $snapshotSetting);
 				
 				## Start pulling new cache
 				$this->fetchNextSnapshots($rdrUrl, []);
@@ -313,7 +313,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			}
 		}
 		else {
-			$currentSnapshots = $cacheLog['currentSnapshots'];
+			$currentSnapshots = $cacheLog['currentSnapshots'] ?: [];
 			
 			## Start doing the next batch of snapshots
 			$this->fetchNextSnapshots($rdrUrl, $currentSnapshots);
@@ -322,16 +322,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		## Restore $_GET PID
 		$_GET['pid'] = $oldProjectId;
 		return $returnValue;
-	}
-	
-	public function getCachedDataByURL($rdrUrl) {
-		$cacheSetting = $this->getCacheSettingByUrl($rdrUrl);
-		
-		$cachedData = $this->getSystemSetting($cacheSetting);
-		
-		$cachedData = json_decode($cachedData, true);
-		
-		return $cachedData;
 	}
 	
 	public function getCacheSettingByUrl($rdrUrl) {
@@ -376,6 +366,12 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		return $snapshotSetting;
 	}
 	
+	public function getCachedDataByURL($rdrUrl) {
+		$cacheSetting = $this->getCacheSettingByUrl($rdrUrl);
+		
+		return $this->decodeSnapshotsFromStorage($cacheSetting);
+	}
+	
 	
 	public function fetchNextSnapshots($rdrUrl, $currentSnapshots) {
 		## Have to reset $_GET['pid'] so this function uses system level logging
@@ -389,28 +385,32 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		$storedSnapshots = $this->getSystemSetting($snapshotSetting);
 		$storedSnapshots = json_decode($storedSnapshots, true) ?: [];
 		
-		$latestSnapshot = max($currentSnapshots);
+		if(count($currentSnapshots) == 0) {
+			$latestSnapshot = 0;
+		}
+		else {
+			$latestSnapshot = max($currentSnapshots);
+		}
 		
 		## Pull the data from the API and then decode it (assuming its JSON for now)
-		$rdrUrl = $rdrUrl."?last_snapshot_id=".$latestSnapshot;
-		$newSnapshots = $this->rdrPullSnapshotsFromAPI($rdrUrl, false);
+		$urlToPull = $rdrUrl."?last_snapshot_id=".$latestSnapshot;
+		$newSnapshots = $this->rdrPullSnapshotsFromAPI($urlToPull, false);
 		
 		foreach($newSnapshots as $snapshotKey => $thisSnapshot) {
 			$storedSnapshots[$snapshotKey] = $thisSnapshot;
 			$currentSnapshots[] = $snapshotKey;
 		}
 		
-		$storedSnapshots = json_encode($storedSnapshots);
-		$this->setSystemSetting($snapshotSetting, $storedSnapshots);
+		$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting);
 		
 		## TODO Not currently sure how to check if last snapshot, so just always assuming last
 		## It's possible the API changed and there's no longer away to limit count of responses
 		$isLastSnapshot = true;
 		
 		if($isLastSnapshot) {
-			$timeout = ((int)$this->getSystemSetting('timeout_duration')) ?: 24*60*60;
+			$timeout = ((int)$this->getSystemSetting('timeout_duration')) ?: 48*60*60;
 			$this->log(self::RDR_CACHE_STATUS,[
-				self::RDR_CACHE_SNAPSHOTS => $currentSnapshots,
+				self::RDR_CACHE_SNAPSHOTS => json_encode($currentSnapshots),
 				self::RDR_CACHE_STATUS => "done",
 				"url" => $rdrUrl,
 				"timeout" => time() + $timeout
@@ -422,7 +422,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 		
 		$this->log(self::RDR_CACHE_STATUS,[
-			self::RDR_CACHE_SNAPSHOTS => $currentSnapshots,
+			self::RDR_CACHE_SNAPSHOTS => json_encode($currentSnapshots),
 			self::RDR_CACHE_STATUS => "not done",
 			"url" => $rdrUrl
 		]);
@@ -460,10 +460,47 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		
 		return $decodedResults;
 	}
+	
+	function encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting) {
+		$storedSnapshots = json_encode($storedSnapshots);
+		
+		## Max length on log parameter is 16M characters
+		## Cutting at 3/4 limit to ensure no issues
+		## Break stored snapshots into chunks and store a list of indexes instead
+		$storedSnapshotParts = [];
+		while(strlen($storedSnapshots) > 12000000) {
+			$storedSnapshotParts[] = substr($storedSnapshots, 0, 12000000);
+			$storedSnapshots = substr($storedSnapshots, 12000000);
+		}
+		
+		$storedSnapshotParts[] = $storedSnapshots;
+		$storedSnapshotIndexes = [];
+		
+		foreach($storedSnapshotParts as $storedIndex => $thisPart) {
+			echo "Saving ".$snapshotSetting."_".$storedIndex." with length: ".strlen($thisPart);
+			$this->setSystemSetting($snapshotSetting."_".$storedIndex, $thisPart);
+			$storedSnapshotIndexes[] = $snapshotSetting."_".$storedIndex;
+		}
+		
+		$storedSnapshotIndexes = json_encode($storedSnapshotIndexes);
+		$this->setSystemSetting($snapshotSetting, $storedSnapshotIndexes);
+	}
+	
+	function decodeSnapshotsFromStorage($snapshotSetting) {
+		$storedSnapshotIndexes = $this->getSystemSetting($snapshotSetting);
+		$storedSnapshotIndexes = json_decode($storedSnapshotIndexes, true);
+		
+		$storedSnapshots = "";
+		foreach($storedSnapshotIndexes as $thisIndex) {
+			$storedSnapshots .= $this->getSystemSetting($thisIndex);
+		}
+		
+		return json_decode($storedSnapshots);
+	}
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
-		$this->log("RDR: Ran pull cron");
+//		$this->log("Ran pull cron");
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
@@ -484,7 +521,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			
 			## Cache the cron results for this project,
 			## stop if over 90 seconds for single pull or 240 for whole cron
-			$rdrUrls = $module->getProjectSetting("rdr-urls");
+			$rdrUrls = $this->getProjectSetting("rdr-urls");
 			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
 			foreach($rdrUrls as $urlKey => $thisUrl) {
 				## Only processing pull connections here, also skip empty URLs
@@ -556,7 +593,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
 	
 					$recordIds = array_keys($recordList);
-					$maxRecordId = max($recordIds);
+					
+					## Get an error running max on an empty array
+					$maxRecordId = count($recordIds) > 0 ? max($recordIds) : 0;
 					
 					$decodedResults = $this->getCachedDataByURL($thisUrl);
 					
@@ -580,7 +619,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						if(array_key_exists($recordId,$recordList)) {
 							continue;
 						}
-	
+	echo "Found new record $recordId<Br />";
 						## Start with an empty data set for the record and start trying to pull data from the API array
 						$rowData = [];
 						foreach($dataMapping as $redcapField => $apiField) {
@@ -591,7 +630,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## "___[raw_value]" is used to map checkboxes one value at a time
 							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
 								$checkboxValue = $checkboxMatches[1];
-								$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+								$checkboxFieldName = substr($redcapField,0,strlen($redcapField) - strlen($checkboxMatches[0]));
 	
 								if(!array_key_exists($checkboxFieldName,$rowData)) {
 									$rowData[$checkboxFieldName] = [];

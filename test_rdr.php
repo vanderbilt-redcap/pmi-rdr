@@ -25,10 +25,11 @@ if(defined("SUPER_USER") && SUPER_USER == 1) {
 	</table></form>";
 	
 	if($_GET['pull_latest_record']) {
-		$rdrUrls = $module->getProjectSetting("rdr-urls");
-		foreach($rdrUrls as $thisUrl) {
-			$module->rdrPullSnapshotsFromAPI($thisUrl, $_GET['debug']);
-		}
+		$module->rdr_pull($_GET['debug'] == 1);
+//		$rdrUrls = $module->getProjectSetting("rdr-urls");
+//		foreach($rdrUrls as $thisUrl) {
+//			$module->fetchNextSnapshots($thisUrl, $_GET['debug']);
+//		}
 	}
 	
 	if($_GET['pull_record']) {
