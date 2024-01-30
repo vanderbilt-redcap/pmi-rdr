@@ -521,7 +521,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			
 			## Cache the cron results for this project,
 			## stop if over 90 seconds for single pull or 240 for whole cron
-			$rdrUrls = $this->getProjectSetting("rdr-urls");
+			$rdrUrls = $this->getProjectSetting("rdr-urls", $projectId);
 			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
 			foreach($rdrUrls as $urlKey => $thisUrl) {
 				## Only processing pull connections here, also skip empty URLs
