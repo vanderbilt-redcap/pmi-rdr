@@ -299,11 +299,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			if($cacheLog['timeout'] < time()) {
 				$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
 				
-				## Remove old backup and set current cache to backup
-				$oldCachedSnapshots = $this->decodeSnapshotsFromStorage($snapshotSetting);
-				
-				$this->encodeSnapshotsForStorage($oldCachedSnapshots, $snapshotSetting."_old");
-				$this->encodeSnapshotsForStorage([], $snapshotSetting);
+				$this->encodeSnapshotsForStorage([], $snapshotSetting."_new");
 				
 				## Start pulling new cache
 				$this->fetchNextSnapshots($rdrUrl, []);
@@ -382,7 +378,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		
 		$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
 		
-		$storedSnapshots = $this->getSystemSetting($snapshotSetting);
+		$storedSnapshots = $this->getSystemSetting($snapshotSetting."_new");
 		$storedSnapshots = json_decode($storedSnapshots, true) ?: [];
 		
 		if(count($currentSnapshots) == 0) {
@@ -401,13 +397,16 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			$currentSnapshots[] = $snapshotKey;
 		}
 		
-		$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting);
+		$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting."_new");
 		
 		## TODO Not currently sure how to check if last snapshot, so just always assuming last
 		## It's possible the API changed and there's no longer away to limit count of responses
 		$isLastSnapshot = true;
 		
 		if($isLastSnapshot) {
+			## Copy the new setting to the base cache location once done
+			$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting);
+			
 			$timeout = ((int)$this->getSystemSetting('timeout_duration')) ?: 48*60*60;
 			$this->log(self::RDR_CACHE_STATUS,[
 				self::RDR_CACHE_SNAPSHOTS => json_encode($currentSnapshots),
@@ -619,7 +618,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						if(array_key_exists($recordId,$recordList)) {
 							continue;
 						}
-	echo "Found new record $recordId<Br />";
+						
 						## Start with an empty data set for the record and start trying to pull data from the API array
 						$rowData = [];
 						foreach($dataMapping as $redcapField => $apiField) {
