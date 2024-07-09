@@ -5,12 +5,14 @@ use ExternalModules\ExternalModules;
 use Google\Cloud\Datastore\DatastoreClient;
 
 class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
-	public $client;
-	public $credentials;
+    public $client;
+    public $credentials;
 
-	const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
-	const RDR_CACHE_STATUS = "cache_status";
-	const RDR_CACHE_SNAPSHOTS = "current_snapshots";
+    const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
+    const RDR_CACHE_STATUS = "cache_status";
+    const RDR_CACHE_SNAPSHOTS = "current_snapshots";
+    // Used when sending Research Access Board Complete projects to <RDR-Env>/rdr/v1/workbench/audit/workspace/results
+    const RAB_REVIEW_TYPE = 'RAB';
 
 	public function __construct() {
 		parent::__construct();
@@ -136,15 +138,20 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							$importPlace = &$importPlace[$tempField];
 						}
 
-						$value = $data[$redcapField];
-						if($metadata[$redcapField]["field_type"] == "checkbox") {
-							$value = [];
-							foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
-								if($checkboxChecked == 1) {
-									$value[] = $checkboxRaw;
-								}
-							}
-						}
+                        $value = $data[$redcapField];
+                        if ($metadata[$redcapField]["field_type"] == "checkbox") {
+                            $value = [];
+                            if ($redcapField == 'rw_workspace_review_status2' && $apiField == 'reviewType') {
+                                // hardcode this for all review types related to RAB as the condition for sending across the API is a complete status (condition: [rw_workspace_review_status2(8)] = '1')
+                                $value = self::RAB_REVIEW_TYPE;
+                            } else {
+                                foreach ($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
+                                    if ($checkboxChecked == 1) {
+                                        $value[] = $checkboxRaw;
+                                    }
+                                }
+                            }
+                        }
 						else if($metadata[$redcapField]["field_type"] == "yesno") {
 							$value = boolval($value);
 						}
@@ -161,8 +168,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 	//				$exportData = json_encode($exportData);
 					## TODO Temp test string to see if works
-	//				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
-	//				$exportData = json_decode($exportData,true);
+					//$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
+					//$exportData = json_decode($exportData,true);
 
 					if($testingOnly[$urlKey] != 1) {
 						$results = $httpClient->post($thisUrl,["json" => $exportData]);
