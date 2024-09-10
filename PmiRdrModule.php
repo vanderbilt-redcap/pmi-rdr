@@ -123,8 +123,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$apiNestedFields = explode("/",$apiField);
 
 					if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
-						if(empty($data[$redcapField])) {
-							continue;
+						if (empty($data[$redcapField])) {
+							// check for @DEFAULT Action Tag
+							$defaultValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'DEFAULT');
+							if ($defaultValue) {
+								$data[$redcapField] = $defaultValue;
+							} else {
+								continue;
+							}
+
 						}
 
 						$importPlace = &$exportData;
@@ -136,7 +143,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							$importPlace = &$importPlace[$tempField];
 						}
                         // Check for hardcoded value in the field annotation first.
-                        $hardcodedValue = $this->getHardCodedValue($metadata[$redcapField]);
+						$hardcodedValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'pmiRdrHardCodeValue');
                         if ($hardcodedValue) {
                             $importPlace = $hardcodedValue;
                         } else {
@@ -898,20 +905,26 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		}
 	}
 
-    /**
-     * Helper method to find any values that should be hardcoded
-     * @param $metadataArray
-     * @return false|mixed
-     */
-    private function getHardCodedValue($metadataArray)
-    {
-        if (isset($metadataArray['field_annotation']) && str_contains($metadataArray['field_annotation'], 'pmiRdrHardCodeValue')) {
-            $matches = [];
-            $s = preg_match('/(?<=\")(.*?)(?=\")/', $metadataArray['field_annotation'], $matches);
-            if ($s > 0) {
-                return $matches[1];
-            }
-        }
-        return false;
-    }
+	/**
+	 * Helper method to find either the pmiRdrHardCodeValue or DEFAULT value of a field annotation
+	 *
+	 * @param $metadataArray
+	 * @param $fieldAnnotationKey
+	 * @return string|bool
+	 */
+	private function getFieldAnnotationValue($metadataArray, $fieldAnnotationKey): string|bool
+	{
+		if (isset($metadataArray['field_annotation']) && str_contains(
+				$metadataArray['field_annotation'],
+				$fieldAnnotationKey
+			)) {
+			$matches = [];
+			$s = preg_match('/(?<=\")(.*?)(?=\")/', $metadataArray['field_annotation'], $matches);
+			if ($s > 0) {
+				return $matches[1];
+			}
+		}
+
+		return false;
+	}
 }
