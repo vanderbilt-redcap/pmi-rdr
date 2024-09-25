@@ -154,6 +154,11 @@
 			"key": "auth-user-email",
 			"name": "Authorized User to Perform GSuite Actions",
 			"type": "text"
+		},
+		{
+			"key": "timeout_duration",
+			"name": "How long to cache results for RDR URLs",
+			"type": "text"
 		}
 	],
 
@@ -169,9 +174,9 @@
 	],
 
 	"compatibility": {
-		"php-version-min": "",
-		"php-version-max": "",
-		"redcap-version-min": "",
+		"php-version-min": "7.3",
+		"php-version-max": "8.2",
+		"redcap-version-min": "11.0.0",
 		"redcap-version-max": ""
 	}
 }

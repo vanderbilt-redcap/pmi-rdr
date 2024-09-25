@@ -5,10 +5,12 @@ use ExternalModules\ExternalModules;
 use Google\Cloud\Datastore\DatastoreClient;
 
 class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
-	public $client;
-	public $credentials;
+    public $client;
+    public $credentials;
 
-	const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
+    const RECORD_CREATED_BY_MODULE = "rdr_module_created_this_";
+    const RDR_CACHE_STATUS = "cache_status";
+    const RDR_CACHE_SNAPSHOTS = "current_snapshots";
 
 	public function __construct() {
 		parent::__construct();
@@ -121,8 +123,15 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$apiNestedFields = explode("/",$apiField);
 
 					if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
-						if(empty($data[$redcapField])) {
-							continue;
+						if (empty($data[$redcapField])) {
+							// check for @DEFAULT Action Tag
+							$defaultValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'DEFAULT');
+							if ($defaultValue) {
+								$data[$redcapField] = $defaultValue;
+							} else {
+								continue;
+							}
+
 						}
 
 						$importPlace = &$exportData;
@@ -133,34 +142,37 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						foreach($apiNestedFields as $tempField) {
 							$importPlace = &$importPlace[$tempField];
 						}
-
-						$value = $data[$redcapField];
-						if($metadata[$redcapField]["field_type"] == "checkbox") {
-							$value = [];
-							foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
-								if($checkboxChecked == 1) {
-									$value[] = $checkboxRaw;
-								}
-							}
-						}
-						else if($metadata[$redcapField]["field_type"] == "yesno") {
-							$value = boolval($value);
-						}
-						else if(is_numeric($value)) {
-							$value = (int)$value;
-						}
-						$importPlace = $value;
-					}
+                        // Check for hardcoded value in the field annotation first.
+						$hardcodedValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'pmiRdrHardCodeValue');
+                        if ($hardcodedValue) {
+                            $importPlace = $hardcodedValue;
+                        } else {
+                            $value = $data[$redcapField];
+                            if ($metadata[$redcapField]["field_type"] == "checkbox") {
+                                $value = [];
+                                foreach ($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
+                                    if ($checkboxChecked == 1) {
+                                        $value[] = $checkboxRaw;
+                                    }
+                                }
+                            } else if ($metadata[$redcapField]["field_type"] == "yesno") {
+                                $value = boolval($value);
+                            } else if (is_numeric($value)) {
+                                $value = (int)$value;
+                            }
+                            $importPlace = $value;
+                        }
+                    }
 				}
 
 				if(!empty($exportData)) {
 					$exportData = [$exportData];
-	//				$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
+                    //$results = $httpClient->post($thisUrl,["form_params" => $exportData]);
 
-	//				$exportData = json_encode($exportData);
-					## TODO Temp test string to see if works
-	//				$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
-	//				$exportData = json_decode($exportData,true);
+                    //$exportData = json_encode($exportData);
+                    ## TODO Temp test string to see if works
+                    //$exportData = '[{"userId": 5000,"creationTime": "2020-03-15T21:21:13.056Z","modifiedTime": "2020-03-15T21:21:13.056Z","givenName": "REDCap test","familyName": "REDCap test","email": "redcap_test@xxx.com","streetAddress1": "REDCap test","streetAddress2": "REDCap test","city": "REDCap test","state": "REDCap test","zipCode": "00000","country": "usa","ethnicity": "HISPANIC","sexAtBirth": ["FEMALE", "INTERSEX"],"identifiesAsLgbtq": false,"lgbtqIdentity": "REDCap test","gender": ["MAN", "WOMAN"],"race": ["AIAN", "WHITE"],"education": "COLLEGE_GRADUATE","degree": ["PHD", "MBA"],"disability": "YES","affiliations": [{"institution": "REDCap test","role": "REDCap test","nonAcademicAffiliation": "INDUSTRY"}],"verifiedInstitutionalAffiliation": {"institutionShortName": "REDCap test","institutionalRole": "REDCap test"}}]';
+                    //$exportData = json_decode($exportData,true);
 
 					if($testingOnly[$urlKey] != 1) {
 						$results = $httpClient->post($thisUrl,["json" => $exportData]);
@@ -234,7 +246,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## "___[raw_value]" is used to map checkboxes one value at a time
 							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
 								$checkboxValue = $checkboxMatches[1];
-								$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+								$checkboxFieldName = substr($redcapField,0, (strlen($checkboxMatches[0])*-1));
 
 								if(!array_key_exists($checkboxFieldName,$rowData)) {
 									$rowData[$checkboxFieldName] = [];
@@ -251,7 +263,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## Filter out data is already exists in REDCap
 							$dataToSave = [];
 							foreach($rowData as $fieldName => $newValue) {
-								if(!empty($data[$fieldName])) {
+								if(empty($data[$fieldName])) {
 									$dataToSave[$fieldName] = $newValue;
 								}
 							}
@@ -278,198 +290,412 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			}
 		}
 	}
+	
+	public function resume_cache_or_restart($rdrUrl) {
+		## Have to reset $_GET['pid'] so this function uses system level logging
+		$oldProjectId = $_GET['pid'];
+		$_GET['pid'] = NULL;
+		
+		$q = $this->queryLogs(
+			"SELECT ".self::RDR_CACHE_STATUS.", ".self::RDR_CACHE_SNAPSHOTS.", timeout
+			WHERE message = '".self::RDR_CACHE_STATUS."'
+				AND url = ?
+			ORDER BY timestamp DESC LIMIT 1", [$rdrUrl]);
+		
+		$cacheLog = db_fetch_assoc($q);
+		$returnValue = false;
+		
+		if($cacheLog[self::RDR_CACHE_STATUS] == "done") {
+			if($cacheLog['timeout'] < time()) {
+				$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
+				
+				$this->encodeSnapshotsForStorage([], $snapshotSetting."_new");
+				
+				## Start pulling new cache
+				$this->fetchNextSnapshots($rdrUrl, []);
+			}
+			else {
+				$returnValue =  true;
+			}
+		}
+		else {
+			$currentSnapshots = $cacheLog['currentSnapshots'] ?: [];
+			
+			## Start doing the next batch of snapshots
+			$this->fetchNextSnapshots($rdrUrl, $currentSnapshots);
+		}
+		
+		## Restore $_GET PID
+		$_GET['pid'] = $oldProjectId;
+		return $returnValue;
+	}
+	
+	public function getCacheSettingByUrl($rdrUrl) {
+		$cachedSnapshots = $this->getSystemSetting(self::RDR_CACHE_SNAPSHOTS);
+		$cachedSnapshots = json_decode($cachedSnapshots, true);
+		
+		$snapshotSetting = false;
+		$saveNewSnapshotUrl = false;
+		
+		## Find snapshot location for this URL
+		foreach($cachedSnapshots as $thisSnapshot) {
+			$thisUrl = $thisSnapshot['url'];
+			if($thisUrl == $rdrUrl) {
+				$snapshotSetting = $thisSnapshot['setting_name'];
+			}
+		}
+		
+		## Create a new snapshot setting id and verify uniqueness
+		while($snapshotSetting === false) {
+			$saveNewSnapshotUrl = true;
+			$snapshotSetting = "cache_id_".uniqid();
+			foreach($cachedSnapshots as $thisSnapshot) {
+				if($thisSnapshot['setting_name'] == $snapshotSetting) {
+					$snapshotSetting = false;
+					break;
+				}
+			}
+		}
+		
+		if($saveNewSnapshotUrl) {
+			$cachedSnapshots[] = [
+				"url" => $rdrUrl,
+				"setting_name" => $snapshotSetting
+			];
+			$cacheToSave = json_encode($cachedSnapshots);
+			
+			if($cacheToSave) {
+				$this->setSystemSetting(self::RDR_CACHE_SNAPSHOTS, $cacheToSave);
+			}
+		}
+		
+		return $snapshotSetting;
+	}
+	
+	public function getCachedDataByURL($rdrUrl) {
+		$cacheSetting = $this->getCacheSettingByUrl($rdrUrl);
+		
+		return $this->decodeSnapshotsFromStorage($cacheSetting);
+	}
+	
+	
+	public function fetchNextSnapshots($rdrUrl, $currentSnapshots) {
+		## Have to reset $_GET['pid'] so this function uses system level logging
+		$oldProjectId = $_GET['pid'];
+		$_GET['pid'] = NULL;
+		
+		$isLastSnapshot = false;
+		
+		$snapshotSetting = $this->getCacheSettingByUrl($rdrUrl);
+		
+		$storedSnapshots = $this->getSystemSetting($snapshotSetting."_new");
+		$storedSnapshots = json_decode($storedSnapshots, true) ?: [];
+		
+		if(count($currentSnapshots) == 0) {
+			$latestSnapshot = 0;
+		}
+		else {
+			$latestSnapshot = max($currentSnapshots);
+		}
+		
+		## Pull the data from the API and then decode it (assuming its JSON for now)
+		$urlToPull = $rdrUrl."?last_snapshot_id=".$latestSnapshot;
+		$newSnapshots = $this->rdrPullSnapshotsFromAPI($urlToPull, false);
+		
+		foreach($newSnapshots as $snapshotKey => $thisSnapshot) {
+			$storedSnapshots[$snapshotKey] = $thisSnapshot;
+			$currentSnapshots[] = $snapshotKey;
+		}
+		
+		$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting."_new");
+		
+		## TODO Not currently sure how to check if last snapshot, so just always assuming last
+		## It's possible the API changed and there's no longer away to limit count of responses
+		$isLastSnapshot = true;
+		
+		if($isLastSnapshot) {
+			## Copy the new setting to the base cache location once done
+			$this->encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting);
+			
+			$timeout = ((int)$this->getSystemSetting('timeout_duration')) ?: 48*60*60;
+			$this->log(self::RDR_CACHE_STATUS,[
+				self::RDR_CACHE_SNAPSHOTS => json_encode($currentSnapshots),
+				self::RDR_CACHE_STATUS => "done",
+				"url" => $rdrUrl,
+				"timeout" => time() + $timeout
+			]);
+			
+			## Restore $_GET PID
+			$_GET['pid'] = $oldProjectId;
+			return true;
+		}
+		
+		$this->log(self::RDR_CACHE_STATUS,[
+			self::RDR_CACHE_SNAPSHOTS => json_encode($currentSnapshots),
+			self::RDR_CACHE_STATUS => "not done",
+			"url" => $rdrUrl
+		]);
+		
+		## Restore $_GET PID
+		$_GET['pid'] = $oldProjectId;
+		return false;
+	}
+	
+	public function rdrPullSnapshotsFromAPI($rdrUrl, $debugApi = false) {
+		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
+		$client = $this->getGoogleClient();
+		
+		/** @var GuzzleHttp\ClientInterface $httpClient */
+		$httpClient = $client->authorize();
+		
+		$results = $httpClient->get($rdrUrl);
+		
+		$decodedResults = json_decode($results->getBody()->getContents(),true);
+		
+		## Export full API results if trying to debug
+		if($debugApi) {
+			echo "Debug Test<Br />";
+			echo "Results Details: ".$results->getStatusCode()."<br />";
+			echo "Total Records Pulled: ".count($decodedResults)."<br />";
+			if(count($decodedResults) > 1000) {
+				$outputResults = array_slice($decodedResults, 0, 1000);
+			}
+			else {
+				$outputResults = $decodedResults;
+			}
+			
+			echo "<pre>".htmlspecialchars(var_export($outputResults,true))."</pre><br />";
+		}
+		
+		return $decodedResults;
+	}
+	
+	function encodeSnapshotsForStorage($storedSnapshots, $snapshotSetting) {
+		$storedSnapshots = json_encode($storedSnapshots);
+		
+		## Max length on log parameter is 16M characters
+		## Cutting at 3/4 limit to ensure no issues
+		## Break stored snapshots into chunks and store a list of indexes instead
+		$storedSnapshotParts = [];
+		while(strlen($storedSnapshots) > 12000000) {
+			$storedSnapshotParts[] = substr($storedSnapshots, 0, 12000000);
+			$storedSnapshots = substr($storedSnapshots, 12000000);
+		}
+		
+		$storedSnapshotParts[] = $storedSnapshots;
+		$storedSnapshotIndexes = [];
+		
+		foreach($storedSnapshotParts as $storedIndex => $thisPart) {
+			echo "Saving ".$snapshotSetting."_".$storedIndex." with length: ".strlen($thisPart);
+			$this->setSystemSetting($snapshotSetting."_".$storedIndex, $thisPart);
+			$storedSnapshotIndexes[] = $snapshotSetting."_".$storedIndex;
+		}
+		
+		$storedSnapshotIndexes = json_encode($storedSnapshotIndexes);
+		$this->setSystemSetting($snapshotSetting, $storedSnapshotIndexes);
+	}
+	
+	function decodeSnapshotsFromStorage($snapshotSetting) {
+		$storedSnapshotIndexes = $this->getSystemSetting($snapshotSetting);
+		$storedSnapshotIndexes = json_decode($storedSnapshotIndexes, true);
+		
+		$storedSnapshots = "";
+		foreach($storedSnapshotIndexes as $thisIndex) {
+			$storedSnapshots .= $this->getSystemSetting($thisIndex);
+		}
+		
+		return json_decode($storedSnapshots);
+	}
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
-		error_log("RDR: Ran pull cron");
+//		$this->log("Ran pull cron");
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
 			$debugApi = false;
 		}
 
-		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
-		$client = $this->getGoogleClient();
-
-		/** @var GuzzleHttp\ClientInterface $httpClient */
-		$httpClient = $client->authorize();
-
+		$cronBeginTime = microtime(true);
 		$projectList = $this->framework->getProjectsWithModuleEnabled();
 
-		## Start by looping through all projects with this module enabled
+		## Start by looping through all projects with this module enabled to update cache
 		foreach($projectList as $projectId) {
 			## If a null or empty project ID gets passed in, skip it
 			if(!$projectId) {
 				continue;
 			}
-
-			## Pull event ID and Arm ID from the \Project object for this project
-			$proj = new \Project($projectId);
-			$proj->loadEvents();
-			$eventId = $proj->firstEventId;
-			$armId = $proj->firstArmId;
-
-			## Pull the project metadata
-			$metadata = $this->getMetadata($projectId);
-
-			## Pull the module settings needed for import from this project
-			$rdrUrl = $this->getProjectSetting("rdr-urls",$projectId);
-			$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
-			$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
-			$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
-			$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
-//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
-			$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
-			$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
+			
+			$allUrlsCached = true;
+			
+			## Cache the cron results for this project,
+			## stop if over 90 seconds for single pull or 240 for whole cron
+			$rdrUrls = $this->getProjectSetting("rdr-urls", $projectId);
 			$dataConnectionTypes = $this->getProjectSetting("rdr-connection-type",$projectId);
-
-			## Loop through each of the URLs this project is pointed to
-			foreach($rdrUrl as $urlKey => $thisUrl) {
+			foreach($rdrUrls as $urlKey => $thisUrl) {
 				## Only processing pull connections here, also skip empty URLs
 				if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 					continue;
 				}
-
-				## TODO This might be outdated now
-				## Check for a JSON version of the data mapping and pull directly from the other settings
-				## If it doesn't exist
-				if(empty($dataMappingJson[$urlKey])) {
-					$dataMapping = [];
-
-					foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
-						$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
-					}
+				
+				$startTime = microtime(true);
+				
+				$cacheDone = $this->resume_cache_or_restart($thisUrl);
+				if(!$cacheDone) {
+					$allUrlsCached = false;
 				}
-				else {
-					$dataMapping = json_decode($dataMappingJson[$urlKey],true);
-				}
-
-				## This RDR doesn't have its data mapping set up yet (or it's set up improperly)
-				if(count($dataMapping) == 0) {
+				
+				$endTime = microtime(true);
+				if(($endTime - $startTime) > 90 || ($endTime - $cronBeginTime) > 240) {
 					continue;
 				}
-
-				## Pull the form name from the first field in the mapping along with the list of existing records
-				$fieldName = reset(array_keys($dataMapping));
-				$formName = $metadata[$fieldName]["form_name"];
-				$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
-
-				$recordIds = array_keys($recordList);
-				$maxRecordId = max($recordIds);
-
-				## Pull the data from the API and then decode it (assuming its JSON for now)
-				if($singleRecord) {
-					$results = $httpClient->get($thisUrl."?snapshot_id=".$singleRecord);
-				}
-				else if(count($recordIds) > 0) {
-					$results = $httpClient->get($thisUrl."?last_snapshot_id=".$maxRecordId);
-				}
-				else {
-					$results = $httpClient->get($thisUrl);
-				}
-
-				$decodedResults = json_decode($results->getBody()->getContents(),true);
-
-				## Export full API results if trying to debug
-				if($debugApi) {
-					echo "Debug Test<Br />";
-					echo "Results Details: ".$results->getStatusCode()."<br />";
-					echo "<pre>".htmlspecialchars(var_export($decodedResults,true))."</pre><br />";
-					continue;
-				}
-
-				## This value is set if an error is returned from the RDR
-				if($decodedResults["message"] != "") {
-					echo "Error getting results: received message \"".$decodedResults["message"]."\"<br />";
-					continue;
-				}
-
-				## Start looping through the data returned from the API (this is the "record" level)
-				foreach($decodedResults as $dataKey => $dataDetails) {
-					## This could be because an error message was received or the API data isn't formatted properly
-					if(!is_array($dataDetails)) {
+			}
+			
+			if($allUrlsCached) {
+				## Pull event ID and Arm ID from the \Project object for this project
+				$proj = new \Project($projectId);
+				$proj->loadEvents();
+				$eventId = $proj->firstEventId;
+				$armId = $proj->firstArmId;
+	
+				## Pull the project metadata
+				$metadata = $this->getMetadata($projectId);
+	
+				## Pull the module settings needed for import from this project
+				$dataMappingJson = $this->getProjectSetting("rdr-data-mapping-json",$projectId);
+				$dataMappingFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+				$dataMappingApiFields = $this->getProjectSetting("rdr-redcap-field-name",$projectId);
+				$apiRecordFields = $this->getProjectSetting("rdr-endpoint-record",$projectId);
+	//			$redcapRecordFields = $this->getProjectSetting("rdr-record-field",$projectId);
+				$dataFormats = $this->getProjectSetting("rdr-data-format",$projectId);
+				$testingOnly = $this->getProjectSetting("rdr-test-only",$projectId);
+	
+				## Loop through each of the URLs this project is pointed to
+				foreach($rdrUrls as $urlKey => $thisUrl) {
+					## Only processing pull connections here, also skip empty URLs
+					if($dataConnectionTypes[$urlKey] != "pull" || empty($thisUrl)) {
 						continue;
 					}
-
-					## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
-					$recordId = $dataKey;
-					if($dataFormats[$urlKey] == "flat") {
-						$recordId = $dataDetails[$apiRecordFields[$urlKey]];
-					}
-
-					## Don't try to import if the record already exists
-					## TODO See if we can find a way to update records without making it
-					## TODO run so slowly that it can never finish in App Engine (60 second timeout)
-					if(array_key_exists($recordId,$recordList)) {
-						continue;
-					}
-
-					## Start with an empty data set for the record and start trying to pull data from the API array
-					$rowData = [];
-					foreach($dataMapping as $redcapField => $apiField) {
-
-						$checkboxMatches = [];
-
-						## Check REDCap metadata so that bool and raw data can be mapped properly
-						## "___[raw_value]" is used to map checkboxes one value at a time
-						if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
-							$checkboxValue = $checkboxMatches[1];
-							$checkboxFieldName = substr($redcapField,0,strlen($redcapField) - strlen($checkboxMatches[0]));
-
-							if(!array_key_exists($checkboxFieldName,$rowData)) {
-								$rowData[$checkboxFieldName] = [];
-							}
-
-							$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
-						}
-						else {
-							$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
-						}
-					}
-
-					if($testingOnly[$urlKey] == "1") {
-						if(!$debugApi) {
-							echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
+	
+					## TODO This might be outdated now
+					## Check for a JSON version of the data mapping and pull directly from the other settings
+					## If it doesn't exist
+					if(empty($dataMappingJson[$urlKey])) {
+						$dataMapping = [];
+	
+						foreach($dataMappingFields[$urlKey] as $mappingKey => $fieldName) {
+							$dataMapping[$fieldName] = $dataMappingApiFields[$urlKey][$mappingKey];
 						}
 					}
 					else {
-						self::checkShutdown();
+						$dataMapping = json_decode($dataMappingJson[$urlKey],true);
+					}
+	
+					## This RDR doesn't have its data mapping set up yet (or it's set up improperly)
+					if(count($dataMapping) == 0) {
+						continue;
+					}
+	
+					## Pull the form name from the first field in the mapping along with the list of existing records
+					$fieldName = reset(array_keys($dataMapping));
+					$formName = $metadata[$fieldName]["form_name"];
+					$recordList = \REDCap::getData(["project_id" => $projectId,"fields" => $fieldName]);
+	
+					$recordIds = array_keys($recordList);
+					
+					## Get an error running max on an empty array
+					$maxRecordId = count($recordIds) > 0 ? max($recordIds) : 0;
+					
+					$decodedResults = $this->getCachedDataByURL($thisUrl);
+					
+					## Start looping through the data returned from the API (this is the "record" level)
+					foreach($decodedResults as $dataKey => $dataDetails) {
+						## This could be because an error message was received or the API data isn't formatted properly
+						## Or if not yet at $maxRecordId
+						if(!is_array($dataDetails) || $dataKey < $maxRecordId) {
+							continue;
+						}
+	
+						## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
+						$recordId = $dataKey;
+						if($dataFormats[$urlKey] == "flat") {
+							$recordId = $dataDetails[$apiRecordFields[$urlKey]];
+						}
+	
+						## Don't try to import if the record already exists
+						## TODO See if we can find a way to update records without making it
+						## TODO run so slowly that it can never finish in App Engine (60 second timeout)
+						if(array_key_exists($recordId,$recordList)) {
+							continue;
+						}
 						
-						## Attempt to save the data
-						$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
-
-						if(count($results["errors"]) > 0) {
-							error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+						## Start with an empty data set for the record and start trying to pull data from the API array
+						$rowData = [];
+						foreach($dataMapping as $redcapField => $apiField) {
+	
+							$checkboxMatches = [];
+	
+							## Check REDCap metadata so that bool and raw data can be mapped properly
+							## "___[raw_value]" is used to map checkboxes one value at a time
+							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
+								$checkboxValue = $checkboxMatches[1];
+								$checkboxFieldName = substr($redcapField,0,strlen($redcapField) - strlen($checkboxMatches[0]));
+	
+								if(!array_key_exists($checkboxFieldName,$rowData)) {
+									$rowData[$checkboxFieldName] = [];
+								}
+	
+								$rowData[$checkboxFieldName][$checkboxValue] = ($this->getApiValue($dataDetails,$apiField) ? "1" : "0");
+							}
+							else {
+								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
+							}
 						}
-
-						try {
-							## Trigger alerts and notifications
-							$eta = new \Alerts();
-
-							$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+	
+						if($testingOnly[$urlKey] == "1") {
+							if(!$debugApi) {
+								echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
+							}
 						}
-						## Catch issues with sending alerts
-						catch(\Exception $e) {
-							error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
-						}
-
-						## Add to records cache
-						\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
-
-						## Define a constant so that this module's own save hook isn't called
-						define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
-
-						## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
-						$_GET['pid'] = $projectId;
-						$_GET['id'] = $recordId;
-
-						## Prevent module errors from crashing the whole import process
-						try {
-							ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
-						}
-						catch(\Exception $e) {
-							$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
-							error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+						else {
+							self::checkShutdown();
+							
+							## Attempt to save the data
+							$results = $this->saveData($projectId,$recordId,$eventId,$rowData);
+	
+							if(count($results["errors"]) > 0) {
+								error_log("PMI RDR: Couldn't import data: ".var_export($results["errors"],true));
+							}
+	
+							try {
+								## Trigger alerts and notifications
+								$eta = new \Alerts();
+	
+								$eta->saveRecordAction($projectId,$recordId,$formName,$eventId);
+							}
+							## Catch issues with sending alerts
+							catch(\Exception $e) {
+								error_log("RDRError sending notification email- Project: $projectId - Record: $recordId: ".var_export($e->getMessage(),true));
+							}
+	
+							## Add to records cache
+							\Records::addRecordToRecordListCache($projectId,$recordId,$armId);
+	
+							## Define a constant so that this module's own save hook isn't called
+							define(self::RECORD_CREATED_BY_MODULE.$recordId,1);
+	
+							## Set the $_GET parameter as auto record generation hook seems to call errors on this (when called by the cron)
+							$_GET['pid'] = $projectId;
+							$_GET['id'] = $recordId;
+	
+							## Prevent module errors from crashing the whole import process
+							try {
+								ExternalModules::callHook("redcap_save_record",[$projectId,$recordId,$formName,$eventId,NULL,NULL,NULL]);
+							}
+							catch(\Exception $e) {
+								$test = \REDCap::email("kyle.mcguffin@vumc.org","","PMI - Error on PMI RDR Module","External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+								error_log("External Module Error - Project: $projectId - Record: $recordId: ".$e->getMessage());
+							}
 						}
 					}
 				}
@@ -677,5 +903,28 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			echo "Process timed out<br />";
 			die();
 		}
+	}
+
+	/**
+	 * Helper method to find either the pmiRdrHardCodeValue or DEFAULT value of a field annotation
+	 *
+	 * @param $metadataArray
+	 * @param $fieldAnnotationKey
+	 * @return string|bool
+	 */
+	private function getFieldAnnotationValue($metadataArray, $fieldAnnotationKey): string|bool
+	{
+		if (isset($metadataArray['field_annotation']) && str_contains(
+				$metadataArray['field_annotation'],
+				$fieldAnnotationKey
+			)) {
+			$matches = [];
+			$s = preg_match('/(?<=\")(.*?)(?=\")/', $metadataArray['field_annotation'], $matches);
+			if ($s > 0) {
+				return $matches[1];
+			}
+		}
+
+		return false;
 	}
 }
