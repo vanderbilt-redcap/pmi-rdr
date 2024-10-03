@@ -246,7 +246,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## "___[raw_value]" is used to map checkboxes one value at a time
 							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
 								$checkboxValue = $checkboxMatches[1];
-								$checkboxFieldName = substr($redcapField,0,strlen($checkboxMatches) - strlen($checkboxMatches[0]));
+								$checkboxFieldName = substr($redcapField,0, (strlen($checkboxMatches[0])*-1));
 
 								if(!array_key_exists($checkboxFieldName,$rowData)) {
 									$rowData[$checkboxFieldName] = [];
@@ -263,7 +263,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## Filter out data is already exists in REDCap
 							$dataToSave = [];
 							foreach($rowData as $fieldName => $newValue) {
-								if(!empty($data[$fieldName])) {
+								if(empty($data[$fieldName])) {
 									$dataToSave[$fieldName] = $newValue;
 								}
 							}
