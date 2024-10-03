@@ -121,8 +121,14 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					$apiNestedFields = explode("/",$apiField);
 
 					if(count($apiNestedFields) > 0 && array_key_exists($redcapField,$data)) {
-						if(empty($data[$redcapField])) {
-							continue;
+						if (empty($data[$redcapField])) {
+							// check for @DEFAULT Action Tag
+							$defaultValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'DEFAULT');
+							if ($defaultValue) {
+								$data[$redcapField] = $defaultValue;
+							} else {
+								continue;
+							}
 						}
 
 						$importPlace = &$exportData;
@@ -133,23 +139,29 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						foreach($apiNestedFields as $tempField) {
 							$importPlace = &$importPlace[$tempField];
 						}
-
-						$value = $data[$redcapField];
-						if($metadata[$redcapField]["field_type"] == "checkbox") {
-							$value = [];
-							foreach($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
-								if($checkboxChecked == 1) {
-									$value[] = $checkboxRaw;
+						$hardcodedValue = $this->getFieldAnnotationValue($metadata[$redcapField], 'pmiRdrHardCodeValue');
+						if ($hardcodedValue) {
+							$importPlace = $hardcodedValue;
+						} else {
+							$value = $data[$redcapField];
+							if ($metadata[$redcapField]["field_type"] == "checkbox") {
+								$value = [];
+								foreach ($data[$redcapField] as $checkboxRaw => $checkboxChecked) {
+									if ($checkboxChecked == 1) {
+										$value[] = $checkboxRaw;
+									}
+								}
+							} else {
+								if ($metadata[$redcapField]["field_type"] == "yesno") {
+									$value = boolval($value);
+								} else {
+									if (is_numeric($value)) {
+										$value = (int)$value;
+									}
 								}
 							}
+							$importPlace = $value;
 						}
-						else if($metadata[$redcapField]["field_type"] == "yesno") {
-							$value = boolval($value);
-						}
-						else if(is_numeric($value)) {
-							$value = (int)$value;
-						}
-						$importPlace = $value;
 					}
 				}
 
@@ -677,5 +689,28 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			echo "Process timed out<br />";
 			die();
 		}
+	}
+
+	/**
+	 * Helper method to find either the pmiRdrHardCodeValue or DEFAULT value of a field annotation
+	 *
+	 * @param array $metadataArray
+	 * @param string $fieldAnnotationKey
+	 * @return string|bool
+	 */
+	private function getFieldAnnotationValue($metadataArray, $fieldAnnotationKey): string|bool
+	{
+		if (isset($metadataArray['field_annotation']) && str_contains(
+				$metadataArray['field_annotation'],
+				$fieldAnnotationKey
+			)) {
+			$matches = [];
+			$s = preg_match('/(?<=\")(.*?)(?=\")/', $metadataArray['field_annotation'], $matches);
+			if ($s > 0) {
+				return $matches[1];
+			}
+		}
+
+		return false;
 	}
 }
