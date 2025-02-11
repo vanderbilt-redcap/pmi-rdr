@@ -30,7 +30,14 @@
 			{
 				"url": "test_rdr.php",
 				"icon": "report",
-				"name": "Test Page"
+				"name": "Test Page",
+				"show-header-and-footer": true
+			},
+			{
+				"url": "ai_an_backfill.php",
+				"icon": "report",
+				"name": "AI / AN Backfill",
+				"show-header-and-footer": true
 			}
 		],
 		"control-center": [
