@@ -246,6 +246,9 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 							## "___[raw_value]" is used to map checkboxes one value at a time
 							if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
 								$checkboxValue = $checkboxMatches[1];
+								if(!is_string($checkboxMatches[0])){
+									error_log("RDR Test: strlen issue: ".var_export($checkboxMatches[0],true));
+								}
 								$checkboxFieldName = substr($redcapField,0, (strlen($checkboxMatches[0])*-1));
 
 								if(!array_key_exists($checkboxFieldName,$rowData)) {
@@ -426,6 +429,12 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						## "___[raw_value]" is used to map checkboxes one value at a time
 						if(preg_match("/\\_\\_\\_([0-9a-zA-Z]+$)/",$redcapField,$checkboxMatches)) {
 							$checkboxValue = $checkboxMatches[1];
+							if(!is_string($redcapField)){
+								error_log("RDR Test: strlen issue: ".var_export($redcapField,true));
+							}
+							if(!is_string($checkboxMatches[0])){
+								error_log("RDR Test: strlen issue: ".var_export($checkboxMatches[0],true));
+							}
 							$checkboxFieldName = substr($redcapField,0,strlen($redcapField) - strlen($checkboxMatches[0]));
 
 							if(!array_key_exists($checkboxFieldName,$rowData)) {
