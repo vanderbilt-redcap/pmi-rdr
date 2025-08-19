@@ -178,7 +178,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						$results = $httpClient->post($thisUrl,["json" => $exportData]);
 						if($results->getStatusCode() != 200) {
 							$message = $results->getBody()->getContents();
-							error_log("RDR Test: ".var_export($results->getHeaders(),true));
 							error_log("RDR Test: ".var_export($message,true));
 
 							\REDCap::logEvent("Pushed decision to RDR","Failed: \n".$message,"",$record,$event_id,$project_id);
@@ -296,7 +295,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
-		error_log("RDR: Ran pull cron");
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
