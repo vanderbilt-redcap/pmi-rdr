@@ -504,12 +504,12 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 			$storedSnapshots .= $this->getSystemSetting($thisIndex);
 		}
 		
-		return json_decode($storedSnapshots);
+		return json_decode($storedSnapshots, true);
 	}
 
 	## RDR Cron method to pull data in
-	public function rdr_pull($debugApi = false,$singleRecord = false) {
-//		$this->log("Ran pull cron");
+	public function rdr_pull($debugApi = false, $singleRecord = false) {
+
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
@@ -610,12 +610,18 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 					
 					## Start looping through the data returned from the API (this is the "record" level)
 					foreach($decodedResults as $dataKey => $dataDetails) {
-						## This could be because an error message was received or the API data isn't formatted properly
-						## Or if not yet at $maxRecordId
-						if(!is_array($dataDetails) || $dataKey < $maxRecordId) {
-							continue;
+
+						if ($singleRecord) {
+							if ($dataKey != $singleRecord) {
+								continue;
+							}
+						} else {
+							## This could be because an error message was received or the API data isn't formatted properly
+							## Or if not yet at $maxRecordId
+							if (!is_array($dataDetails) || $dataKey < $maxRecordId) {
+								continue;
+							}
 						}
-	
 						## "flat" means that the top level array keys don't contain the record IDs, so need to look it up from the data
 						$recordId = $dataKey;
 						if($dataFormats[$urlKey] == "flat") {
@@ -625,7 +631,7 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 						## Don't try to import if the record already exists
 						## TODO See if we can find a way to update records without making it
 						## TODO run so slowly that it can never finish in App Engine (60 second timeout)
-						if(array_key_exists($recordId,$recordList)) {
+						if(array_key_exists($recordId,$recordList) && !$singleRecord) {
 							continue;
 						}
 						
@@ -651,13 +657,10 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 								$rowData[$redcapField] = $this->getApiValue($dataDetails,$apiField,$metadata[$redcapField]);
 							}
 						}
-	
-						if($testingOnly[$urlKey] == "1") {
-							if(!$debugApi) {
-								echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
-							}
+						if($debugApi) {
+							echo "<pre>".htmlspecialchars($recordId." => ".var_export($rowData,true))."</pre>";echo "<br />";
 						}
-						else {
+						if ($testingOnly[$urlKey] != "1") {
 							self::checkShutdown();
 							
 							## Attempt to save the data
