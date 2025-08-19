@@ -292,7 +292,6 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 	## RDR Cron method to pull data in
 	public function rdr_pull($debugApi = false,$singleRecord = false) {
-		error_log("RDR: Ran pull cron");
 		
 		if(is_array($debugApi)) {
 			## When run from the cron, an array is passed in here
