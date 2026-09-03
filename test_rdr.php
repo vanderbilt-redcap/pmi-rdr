@@ -17,7 +17,8 @@ if(defined("SUPER_USER") && SUPER_USER == 1) {
 	<input type='hidden' value='".htmlspecialchars($_GET['page'])."' name='page' />
 	<input type='hidden' value='".htmlspecialchars($_GET['pid'])."' name='pid' />
 	<table>
-		<tr><td>Workspace to pull:</td><td><input type='text' data-lpignore='true' value='".htmlspecialchars($_GET['pull_record'])."' name='pull_record' /></td></tr>
+		<tr><td>Workspace to pull (will save record):</td><td><input type='text' data-lpignore='true' value='".htmlspecialchars($_GET['pull_record'])."' name='pull_record' /></td></tr>
+		<tr><td>Debug? (will not save record)</td><td><input type='checkbox' data-lpignore='true' value='1' ".(empty($_GET['debug']) ? "" : "checked")." name='debug' /></td></tr>
 		<tr><td>Check to run the cron:</td><td><input type='checkbox' data-lpignore='true' value='1' ".(empty($_GET['run_cron']) ? "" : "checked")." name='run_cron' /></td></tr>
 		<tr><td><input type='submit' value='Submit' /></td></tr>
 	</table></form>";
