@@ -66,6 +66,8 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 
 		define(self::RECORD_CREATED_BY_MODULE.$project_id."~".$record,1);
 
+
+
 		/** @var \Vanderbilt\GSuiteIntegration\GSuiteIntegration $module */
 		$client = $this->getGoogleClient();
 
@@ -564,6 +566,17 @@ class PmiRdrModule extends \ExternalModules\AbstractExternalModule {
 		if($fieldMetadata["field_type"] == "yesno") {
 			return ($importFrom ? "1" : "0");
 		}
+
+        if($fieldMetadata["field_type"] == "notes") {
+            $pmiRdrJsonArray = $this->getFieldAnnotationValue($fieldMetadata,'pmiRdrJsonArray');
+            if ($pmiRdrJsonArray =='1' && is_array($importFrom)) {
+                $saveArray = [];
+                foreach ($importFrom as $thisValue) {
+                    $saveArray[] = htmlspecialchars($thisValue);
+                }
+                return json_encode($saveArray);
+            }
+        }
 
 		return htmlspecialchars($importFrom);
 	}
