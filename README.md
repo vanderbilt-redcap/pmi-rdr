@@ -1,5 +1,8 @@
 # PmiRdrModule
-Connects PMI REDCap to the RDR
+Connects PMI REDCap to the RDR.  
+
+## GitHub
+use the `main` branch of this module. master branch has been deprecated.  The main branch is the default branch for this module.
 
 ## Configuration
 This module has many configuration options. Please review them in `config.json`.
